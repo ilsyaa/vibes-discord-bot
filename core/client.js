@@ -6,6 +6,11 @@ import {
 } from 'discord.js';
 import { config } from './config.js';
 import { loadFeatures } from './loader.js';
+import { initLogger } from './logger.js';
+
+// Inisialisasi logger file per session (hanya mencatat error)
+const logFile = initLogger();
+console.log(`📁 Error log session: ${logFile}`);
 
 // Setup client dengan intents lengkap untuk slash, prefix, dan voice
 export const client = new Client({
