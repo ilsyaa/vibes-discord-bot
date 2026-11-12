@@ -1,0 +1,25 @@
+{
+  "name": "vibes-discord",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "deploy": "node src/deploy-commands.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@discordjs/opus": "^0.11.0",
+    "@discordjs/voice": "^0.19.2",
+    "@distube/youtube": "^1.1.0",
+    "@distube/ytdl-core": "^5.2.1",
+    "discord.js": "^14.28.1",
+    "distube": "^5.2.3",
+    "dotenv": "^18.0.10",
+    "libsodium-wrappers": "^0.8.4"
+  }
+}
