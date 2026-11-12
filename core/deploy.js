@@ -40,22 +40,30 @@ export async function deploy() {
   }
 
   const rest = new REST({ version: '10' }).setToken(config.token);
+  const guildId = process.env.GUILD_ID;
 
   try {
-    console.log(`🚀 Mendaftarkan ${commands.length} slash commands ke Discord...`);
-
-    const data = await rest.put(
-      Routes.applicationCommands(config.clientId),
-      { body: commands },
-    );
-
-    console.log(`✅ Berhasil mendaftarkan ${data.length} slash commands secara global!`);
+    if (guildId) {
+      console.log(`🚀 Mendaftarkan ${commands.length} slash commands ke GUILD (${guildId}) [Instan]...`);
+      const data = await rest.put(
+        Routes.applicationGuildCommands(config.clientId, guildId),
+        { body: commands },
+      );
+      console.log(`✅ Berhasil mendaftarkan ${data.length} slash commands ke server target!`);
+    } else {
+      console.log(`🚀 Mendaftarkan ${commands.length} slash commands secara GLOBAL...`);
+      const data = await rest.put(
+        Routes.applicationCommands(config.clientId),
+        { body: commands },
+      );
+      console.log(`✅ Berhasil mendaftarkan ${data.length} slash commands secara global!`);
+      console.log('💡 Tip: Pendaftaran global butuh waktu sinkronisasi cache Discord. Gunakan GUILD_ID di .env agar muncul instan saat development.');
+    }
   } catch (error) {
     console.error('❌ Gagal deploy slash commands:', error);
   }
 }
 
-// Auto deploy if executed directly
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   deploy();
 }
