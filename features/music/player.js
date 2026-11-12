@@ -3,7 +3,9 @@ import path from 'node:path';
 import { DisTube } from 'distube';
 import { YouTubePlugin } from '@distube/youtube';
 import { createPoTokenProvider, Client } from '@distube/ytdl-core';
+import { fetch as undiciFetch, ProxyAgent } from 'undici';
 import { EmbedBuilder } from 'discord.js';
+import { config } from '../../core/config.js';
 import { createNowPlayingEmbed, createPlayerButtons } from './ui.js';
 
 let distubeInstance = null;
@@ -26,9 +28,27 @@ export async function initMusicPlayer(client) {
   }
 
   // Inisialisasi PO Token Provider (Proof-of-Origin Token) untuk bypass blokir IP VPS/Cloud
+  const proxyAgent = config.youtubeProxy ? new ProxyAgent(config.youtubeProxy) : undefined;
+  const youtubeFetch = proxyAgent
+    ? (url, options = {}) => undiciFetch(url, { ...options, dispatcher: proxyAgent })
+    : undefined;
+
+  if (youtubeFetch) {
+    console.log('🌐 YouTube requests menggunakan proxy yang dikonfigurasi.');
+  }
+  if (config.youtubeProxy) {
+    // DisTube hands the resolved media URL to ffmpeg, which runs outside Node's
+    // fetch path. Keep ffmpeg on the same egress IP as the YouTube lookup.
+    for (const variable of ['http_proxy', 'https_proxy', 'HTTP_PROXY', 'HTTPS_PROXY']) {
+      process.env[variable] = config.youtubeProxy;
+    }
+    process.env.no_proxy = '';
+    process.env.NO_PROXY = '';
+  }
+
   let poToken;
   try {
-    poToken = await createPoTokenProvider();
+    poToken = await createPoTokenProvider(youtubeFetch ? { fetch: youtubeFetch } : undefined);
     console.log('🛡️ PO Token Provider berhasil diinisialisasi.');
   } catch (err) {
     console.warn('⚠️ Gagal membuat PO Token Provider:', err.message);
@@ -37,6 +57,7 @@ export async function initMusicPlayer(client) {
   const youtubePlugin = new YouTubePlugin({
     cookies,
     ytdlOptions: {
+      ...(youtubeFetch ? { fetch: youtubeFetch } : {}),
       getPoToken: poToken,
       clients: [
         Client.Tv,
