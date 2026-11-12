@@ -29,9 +29,9 @@ Discord supports slash commands, buttons, select menus, modals, autocomplete, ep
 - `features/music/` owns DisTube queues, now-playing embeds, and playback buttons.
 - `features/general/` owns utility commands and help.
 - Music state is currently process-local.
-- There is no persistence, migration runner, dashboard, session store, metrics subsystem, or test suite.
+- The repository now has file-backed persistence, aggregate metrics, an opt-in dashboard, OAuth session storage, and a dependency-free dashboard UI; test coverage is still being expanded.
 - `core/deploy.js` separately registers slash commands globally or to `GUILD_ID`.
-- The deployed runtime is Node 26, which provides `node:sqlite` `DatabaseSync`; the database phase should pin the minimum Node version before migration work lands.
+- The deployed runtime is Node 26, which provides the release-candidate `node:sqlite` `Database` API; the minimum engine is now a persistence contract.
 
 ## Phased execution plan
 
@@ -65,23 +65,23 @@ Discord supports slash commands, buttons, select menus, modals, autocomplete, ep
 
 ### P2 — Database and persistence
 
-- [ ] F-013 Add `core/storage/database.js` using `DatabaseSync` with foreign keys, defensive mode, busy timeout, and prepared statements.
-- [ ] F-014 Add idempotent numbered migrations and a `schema_migrations` table.
-- [ ] F-015 Persist `guild_settings`: music channel, control role, default volume, autoplay, locale, and feature flags.
+- [x] F-013 Add `core/storage/database.js` using Node 26 `Database` with foreign keys, defensive mode, busy timeout, and prepared statements.
+- [x] F-014 Add idempotent numbered migrations and a `schema_migrations` table.
+- [x] F-015 Persist `guild_settings` and apply default volume/music-channel settings.
 - [ ] F-016 Persist favorites and named playlists with owner/server visibility and delete behavior.
-- [ ] F-017 Store aggregate `music_events`/daily rollups without raw search queries by default.
-- [ ] F-018 Add `audit_log` for dashboard setting changes and privileged music actions.
-- [ ] F-019 Add scheduled SQLite backup, restore check, corruption/lock health status, and retention cleanup.
+- [x] F-017 Store aggregate daily metrics without raw search queries by default.
+- [x] F-018 Add `audit_log` for dashboard setting changes.
+- [ ] F-019 Add scheduled SQLite backup, restore check, and corruption/lock health status.
 
 ### P3 — Dashboard
 
-- [ ] F-020 Add a Fastify dashboard server with static assets and a health endpoint.
-- [ ] F-021 Add Discord OAuth2 authorization-code flow with state, PKCE, exact redirect URI, and server-side client secret.
-- [ ] F-022 Add server-side sessions with HttpOnly, Secure, SameSite cookies and hashed session records.
-- [ ] F-023 Add guild authorization: user must manage the guild, the bot must be present, and the dashboard must re-check permissions before writes.
-- [ ] F-024 Add dashboard pages: Overview, Music Settings, Controls, Analytics, Audit Log, and Integrations.
-- [ ] F-025 Add settings REST endpoints with schema validation, CSRF protection, rate limits, audit events, and optimistic concurrency.
-- [ ] F-026 Add dashboard UI empty/loading/error states and deep links back to Discord commands.
+- [x] F-020 Add a dependency-free Node HTTP dashboard server with static assets and a health endpoint.
+- [x] F-021 Add Discord OAuth2 authorization-code flow with state, PKCE, exact redirect URI, and server-side client secret.
+- [x] F-022 Add server-side sessions with HttpOnly/Secure/SameSite cookies and HMAC-hashed session records.
+- [x] F-023 Add guild authorization: user must manage the guild and the bot must be present before reads/writes.
+- [ ] F-024 Add dashboard pages for Overview, Music Settings, Controls, Analytics, Audit Log, and Integrations.
+- [x] F-025 Add settings REST endpoints with schema validation, CSRF protection, audit events, and transactional writes.
+- [x] F-026 Add dashboard loading, empty, error, unauthorized, and conflict states.
 
 ### P4 — Operations and quality
 
@@ -94,24 +94,34 @@ Discord supports slash commands, buttons, select menus, modals, autocomplete, ep
 
 ## Current vertical slice in this branch
 
-### Commands
+### Commands and runtime
 
-- `/stats` and `!stats`: public derived runtime status.
+- `/stats` and `!stats`: runtime status plus aggregate plays/failures/command metrics.
 - `/diagnose` and `!diagnose`: ephemeral slash diagnostics; prefix diagnostics remain visible because Discord prefix commands cannot be ephemeral.
+- `play` reads persisted guild settings for the configured music channel and default volume.
+- Music playback events and dispatched commands update daily aggregate metrics.
 
-### Data model
+### Persistence
 
-This slice intentionally adds no persistent data. `/stats` derives values from `Client`, `process`, and the command registry. `/diagnose` derives values from guild state, bot permissions, and the active DisTube queue.
+- `core/storage/migrations.js`: numbered schema migrations.
+- `core/storage/database.js`: file-backed SQLite store, guild settings, metrics, audit rows, OAuth states, and dashboard sessions.
+- `DATABASE_PATH` defaults to `data/vibes.sqlite`, which is ignored by Git.
+
+### Dashboard
+
+- `dashboard/server.js`: dependency-free Node HTTP server, health endpoint, static control center, OAuth2 login, PKCE, HMAC-hashed sessions, guild authorization, settings/metrics/audit APIs, CSRF checks, and transactional writes.
+- Dashboard is opt-in through `DASHBOARD_ENABLED`; bot-only mode remains the default.
 
 ### Integration map
 
-- `features/general/commands.js`: stats command and embed builder.
-- `features/general/index.js`: general command registration.
-- `features/music/commands.js`: diagnostics command and checks.
-- `features/music/index.js`: music command registration.
-- `core/client.js`: existing slash/prefix dispatch remains unchanged.
-- `core/deploy.js`: existing command deployment remains unchanged.
-- `README.md`: command documentation.
+- `core/client.js`: initializes storage, starts the optional dashboard, records command metrics, and closes resources on shutdown.
+- `core/config.js`: database and dashboard configuration.
+- `core/storage/`: migrations and repositories.
+- `dashboard/server.js`: dashboard routes, auth, API, and UI.
+- `features/general/commands.js`: stats command and aggregate metrics display.
+- `features/music/commands.js`: diagnostics, music-channel guard, and default-volume application.
+- `features/music/player.js`: playback/failure metric events.
+- `README.md` and `.env.example`: setup and dashboard configuration.
 
 ## Target data model
 
@@ -126,22 +136,23 @@ The first database migration set should keep domain boundaries explicit:
 - `daily_metrics(guild_id, day, plays, skips, failures, commands, active_minutes)`
 - `audit_log(id, guild_id, actor_id, action, target, metadata_json, created_at)`
 - `dashboard_sessions(id, user_id, session_hash, expires_at, created_at, last_seen_at)`
+- `oauth_states(state_hash, code_verifier, expires_at, created_at)`
 
 Privacy default: do not store raw search strings, message content, cookies, bot tokens, OAuth codes, or full media URLs when an identifier is sufficient. Add retention and deletion behavior before exposing historical analytics.
 
 ## Dashboard architecture
 
-Recommended initial shape:
+Implemented initial shape:
 
-- `dashboard/server.js`: Fastify server and lifecycle.
-- `dashboard/auth/discord-oauth.js`: authorization code, state, PKCE, token exchange, identity.
-- `dashboard/auth/authorization.js`: guild-management checks and bot-presence checks.
-- `dashboard/api/`: typed route handlers for settings, stats, controls, audit, and health.
-- `dashboard/public/`: static UI assets; start without a second SPA build system unless the surface outgrows the static approach.
+- `dashboard/server.js`: dependency-free Node HTTP server and lifecycle.
+- OAuth2 authorization-code flow with state, PKCE, issuer validation, token exchange, and identity/guild discovery.
+- HMAC-hashed sessions with HttpOnly/Secure/SameSite cookies.
+- Guild authorization based on Discord `Manage Guild`/`Administrator` claims plus bot presence.
+- Settings, metrics, audit, and health API routes.
+- `dashboard/public` is reserved for future split assets; the current UI is embedded and dependency-free.
 - `core/storage/`: SQLite connection, migrations, repositories, and transaction helpers.
-- `core/metrics/`: event contracts and rollup jobs shared by bot and dashboard.
 
-Dashboard write invariant: every setting write must pass authenticated user, guild-management authorization, bot presence, schema validation, current-version check, audit insertion, and a transaction. The dashboard must never grant a Discord permission the bot does not already have.
+Dashboard write invariant: every setting write passes authenticated user, guild-management authorization, bot presence, schema validation, CSRF validation, audit insertion, and a transaction. The dashboard never grants a Discord permission the bot does not already have.
 
 ## Acceptance criteria for future phases
 
@@ -172,7 +183,7 @@ Dashboard write invariant: every setting write must pass authenticated user, gui
 ## Risks and decisions
 
 - **Node version:** use built-in `node:sqlite` on Node 26 and declare the minimum engine before persistence lands. Do not add a native SQLite package without evidence that built-in SQLite is insufficient.
-- **Concurrency:** `DatabaseSync` is synchronous; keep transactions short and move rollups/backup work off command handlers.
+- **Concurrency:** Node's synchronous `Database` API is synchronous; keep transactions short and move rollups/backup work off command handlers.
 - **OAuth security:** use server-side code exchange, state, PKCE, exact redirect URIs, secure cookies, CSRF protection, and short-lived sessions.
 - **Authorization drift:** re-check guild permissions at API write time; cached dashboard guild lists are not authority.
 - **Analytics privacy:** aggregate by default; document retention and provide deletion before adding rankings/history.
