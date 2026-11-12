@@ -94,6 +94,16 @@ DISCORD_TOKEN=token_bot_anda_disini
 CLIENT_ID=client_id_anda_disini
 PREFIX=!
 DEFAULT_VOLUME=50
+DATABASE_PATH=data/vibes.sqlite
+
+# Optional dashboard
+DASHBOARD_ENABLED=false
+DASHBOARD_HOST=127.0.0.1
+DASHBOARD_PORT=8787
+DASHBOARD_PUBLIC_URL=https://dashboard.example.com
+DASHBOARD_CLIENT_ID=
+DASHBOARD_CLIENT_SECRET=
+DASHBOARD_SESSION_SECRET=replace-with-a-long-random-secret
 ```
 
 > **Penting**: Di **Discord Developer Portal -> Bot -> Privileged Gateway Intents**, pastikan opsi **Message Content Intent** sudah diaktifkan agar prefix command `!` dapat dibaca.
@@ -104,7 +114,22 @@ Jalankan perintah ini sekali untuk mendaftarkan semua slash commands dari semua 
 npm run deploy
 ```
 
-### 3. Jalankan Bot
+### 3. Dashboard (opsional)
+
+Dashboard memakai Discord OAuth2 authorization-code flow dan hanya menampilkan guild yang:
+
+- dapat dikelola oleh akun Discord yang login (`Manage Server` atau `Administrator`);
+- sudah memiliki bot Vibes.
+
+1. Daftarkan redirect URL `<DASHBOARD_PUBLIC_URL>/auth/callback` di Discord Developer Portal.
+2. Isi `DASHBOARD_CLIENT_SECRET` dan buat `DASHBOARD_SESSION_SECRET` acak.
+3. Set `DASHBOARD_ENABLED=true`.
+4. Jalankan bot; buka `DASHBOARD_PUBLIC_URL`.
+
+Dashboard menyediakan health check, aggregate metrics, audit log, dan pengaturan volume/channel musik. Bot tetap bisa dijalankan tanpa dashboard dengan `DASHBOARD_ENABLED=false`.
+
+### 4. Jalankan Bot
+
 Mode produksi:
 ```bash
 npm start

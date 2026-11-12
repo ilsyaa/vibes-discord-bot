@@ -7,6 +7,8 @@ import {
 import { config } from './config.js';
 import { loadFeatures } from './loader.js';
 import { initLogger } from './logger.js';
+import { openStore } from './storage/database.js';
+import { startDashboard } from '../dashboard/server.js';
 
 // Inisialisasi logger file per session (hanya mencatat error)
 const logFile = initLogger();
@@ -23,9 +25,11 @@ export const client = new Client({
 });
 
 // Registry Command, Aliases, dan Interaction Handlers
+export let store = null;
 client.commands = new Collection();
 client.aliases = new Collection();
 client.interactionHandlers = [];
+client.store = null;
 
 // Event Ready
 client.once('ready', () => {
@@ -62,6 +66,8 @@ client.on('interactionCreate', async (interaction) => {
   const command = client.commands.get(interaction.commandName);
   if (!command || !command.executeSlash) return;
 
+  client.store?.recordMetric(interaction.guildId, 'commands');
+
   try {
     await command.executeSlash(interaction, client);
   } catch (error) {
@@ -90,6 +96,8 @@ client.on('messageCreate', async (message) => {
   const command = client.commands.get(commandName) || client.aliases.get(commandName);
   if (!command || !command.executePrefix) return;
 
+  client.store?.recordMetric(message.guildId, 'commands');
+
   try {
     await command.executePrefix(message, args, client);
   } catch (error) {
@@ -109,6 +117,22 @@ process.on('uncaughtException', (err) => {
 
 // Initialize & Boot
 export async function start() {
+  store = openStore(config.databasePath);
+  client.store = store;
+
+  const dashboardServer = config.dashboardEnabled
+    ? await startDashboard({ client, store, config })
+    : null;
+
+  const shutdown = async () => {
+    await closeServer(dashboardServer);
+    store?.close();
+    client.destroy();
+    process.exit(0);
+  };
+  process.once('SIGINT', shutdown);
+  process.once('SIGTERM', shutdown);
+
   await loadFeatures(client);
 
   if (!config.token) {
@@ -118,4 +142,9 @@ export async function start() {
   }
 
   await client.login(config.token);
+}
+
+async function closeServer(server) {
+  if (!server?.listening) return;
+  await new Promise((resolve) => server.close(resolve));
 }

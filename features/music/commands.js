@@ -14,10 +14,16 @@ export const playCommand = {
     ),
   aliases: ['p'],
 
-  async executeSlash(interaction) {
+  async executeSlash(interaction, client) {
     const distube = getDisTube();
     const query = interaction.options.getString('query');
     const member = interaction.member;
+    if (!isMusicChannelAllowed(interaction.guildId, interaction.channelId, client)) {
+      return interaction.reply({
+        content: '❌ Server ini menetapkan channel musik khusus. Gunakan channel yang dikonfigurasi.',
+        ephemeral: true,
+      });
+    }
     const voiceChannel = member.voice?.channel;
 
     if (!voiceChannel) {
@@ -42,6 +48,7 @@ export const playCommand = {
         textChannel: interaction.channel,
         member,
       });
+      applyGuildSettings(distube, interaction.guildId, client);
 
       return interaction.editReply({
         content: `🔍 Memproses permintaan: **${query}**...`,
@@ -54,13 +61,16 @@ export const playCommand = {
     }
   },
 
-  async executePrefix(message, args) {
+  async executePrefix(message, args, client) {
     const distube = getDisTube();
     if (!args.length) {
       return message.reply('❌ Masukkan link YouTube atau judul lagu! Contoh: `!play lofi beats` atau `!play <link>`');
     }
 
     const query = args.join(' ');
+    if (!isMusicChannelAllowed(message.guildId, message.channelId, client)) {
+      return message.reply('❌ Server ini menetapkan channel musik khusus. Gunakan channel yang dikonfigurasi.');
+    }
     const voiceChannel = message.member.voice?.channel;
 
     if (!voiceChannel) {
@@ -79,7 +89,7 @@ export const playCommand = {
         textChannel: message.channel,
         member: message.member,
       });
-
+      applyGuildSettings(distube, message.guildId, client);
       loadingMsg.delete().catch(() => {});
     } catch (err) {
       console.error('Error prefix play:', err);
@@ -87,6 +97,16 @@ export const playCommand = {
     }
   },
 };
+function applyGuildSettings(distube, guildId, client) {
+  const settings = client.store?.getGuildSettings?.(guildId);
+  const queue = distube.getQueue(guildId);
+  if (!settings || !queue || typeof queue.setVolume !== 'function') return;
+  queue.setVolume(settings.defaultVolume);
+}
+function isMusicChannelAllowed(guildId, channelId, client) {
+  const settings = client.store?.getGuildSettings?.(guildId);
+  return !settings?.musicChannelId || settings.musicChannelId === channelId;
+}
 
 export const skipCommand = {
   data: new SlashCommandBuilder()

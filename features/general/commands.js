@@ -63,11 +63,18 @@ function buildStatsEmbed(client) {
   const cachedMembers = [...client.guilds.cache.values()]
     .reduce((total, guild) => total + (guild.memberCount || 0), 0);
   const websocketPing = client.ws.ping >= 0 ? `${Math.round(client.ws.ping)}ms` : 'Belum tersedia';
+  const metrics = client.store?.getMetrics?.() || {
+    plays: 0,
+    skips: 0,
+    failures: 0,
+    commands: 0,
+    days: 0,
+  };
 
   return new EmbedBuilder()
     .setColor(0x5865F2)
     .setTitle('📊 Statistik Operasional Bot')
-    .setDescription('Status runtime saat ini; angka historis belum disimpan.')
+    .setDescription('Status runtime dan aggregate metrics; raw query tidak disimpan.')
     .addFields(
       { name: '⏱️ Uptime', value: formatDuration(process.uptime() * 1000), inline: true },
       { name: '🏠 Server', value: `${client.guilds.cache.size}`, inline: true },
@@ -75,9 +82,12 @@ function buildStatsEmbed(client) {
       { name: '⚡ Discord WS', value: websocketPing, inline: true },
       { name: '💾 RSS Memory', value: formatBytes(process.memoryUsage().rss), inline: true },
       { name: '🧩 Loaded Commands', value: `${client.commands.size}`, inline: true },
+      { name: '🎵 Plays', value: `${metrics.plays}`, inline: true },
+      { name: '❌ Playback Failures', value: `${metrics.failures}`, inline: true },
+      { name: '🗓️ Metric Days', value: `${metrics.days}`, inline: true },
       { name: '🟢 Runtime', value: `Node.js ${process.version}`, inline: false },
     )
-    .setFooter({ text: 'Vibes Discord Bot • Operational stats only' })
+    .setFooter({ text: 'Vibes Discord Bot • Operational stats' })
     .setTimestamp();
 }
 

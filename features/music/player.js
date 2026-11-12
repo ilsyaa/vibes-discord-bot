@@ -77,6 +77,7 @@ export async function initMusicPlayer(client) {
 
   // Event playSong (ketika sebuah lagu mulai dimainkan)
   distube.on('playSong', async (queue, song) => {
+    client.store?.recordMetric(queue.guildId, 'plays');
     if (!queue.textChannel) return;
 
     try {
@@ -157,6 +158,7 @@ export async function initMusicPlayer(client) {
 
   // Event error
   distube.on('error', (error, queue) => {
+    client.store?.recordMetric(queue?.guildId, 'failures');
     console.error('DisTube stream error:', error);
     if (queue && queue.textChannel) {
       const embed = new EmbedBuilder()
