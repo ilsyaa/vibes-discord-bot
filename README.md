@@ -92,9 +92,11 @@ DISCORD_TOKEN=token_bot_anda_disini
 CLIENT_ID=client_id_anda_disini
 PREFIX=!
 DEFAULT_VOLUME=50
+YOUTUBE_PROXY=http://username:password@proxy-host:proxy-port
 ```
 
 > **Penting**: Di **Discord Developer Portal -> Bot -> Privileged Gateway Intents**, pastikan opsi **Message Content Intent** sudah diaktifkan agar prefix command `!` dapat dibaca.
+> Jika YouTube mengembalikan HTTP 403 dari VPS, isi `YOUTUBE_PROXY` dengan proxy HTTP(S) terautentikasi. Proxy dipakai untuk player request, pencarian media, dan pembuatan PO token; simpan nilainya di `.env` dan jangan commit kredensialnya.
 
 ### 2. Deploy Slash Commands
 Jalankan perintah ini sekali untuk mendaftarkan semua slash commands dari semua modul fitur ke Discord API:

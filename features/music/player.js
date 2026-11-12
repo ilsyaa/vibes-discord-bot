@@ -3,7 +3,9 @@ import path from 'node:path';
 import { DisTube } from 'distube';
 import { YouTubePlugin } from '@distube/youtube';
 import { createPoTokenProvider, Client } from '@distube/ytdl-core';
+import { fetch as undiciFetch, ProxyAgent } from 'undici';
 import { EmbedBuilder } from 'discord.js';
+import { config } from '../../core/config.js';
 import { createNowPlayingEmbed, createPlayerButtons } from './ui.js';
 
 let distubeInstance = null;
@@ -26,9 +28,18 @@ export async function initMusicPlayer(client) {
   }
 
   // Inisialisasi PO Token Provider (Proof-of-Origin Token) untuk bypass blokir IP VPS/Cloud
+  const proxyAgent = config.youtubeProxy ? new ProxyAgent(config.youtubeProxy) : undefined;
+  const youtubeFetch = proxyAgent
+    ? (url, options = {}) => undiciFetch(url, { ...options, dispatcher: proxyAgent })
+    : undefined;
+
+  if (youtubeFetch) {
+    console.log('🌐 YouTube requests menggunakan proxy yang dikonfigurasi.');
+  }
+
   let poToken;
   try {
-    poToken = await createPoTokenProvider();
+    poToken = await createPoTokenProvider(youtubeFetch ? { fetch: youtubeFetch } : undefined);
     console.log('🛡️ PO Token Provider berhasil diinisialisasi.');
   } catch (err) {
     console.warn('⚠️ Gagal membuat PO Token Provider:', err.message);
@@ -37,6 +48,7 @@ export async function initMusicPlayer(client) {
   const youtubePlugin = new YouTubePlugin({
     cookies,
     ytdlOptions: {
+      ...(youtubeFetch ? { fetch: youtubeFetch } : {}),
       getPoToken: poToken,
       clients: [
         Client.Tv,
