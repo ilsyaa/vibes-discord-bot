@@ -1,41 +1,44 @@
-const fs = require('fs');
-const path = require('path');
-const { DisTube } = require('distube');
-const { YouTubePlugin } = require('@distube/youtube');
-const { EmbedBuilder } = require('discord.js');
-const { createNowPlayingEmbed, createPlayerButtons } = require('./ui/playerEmbed');
-const config = require('./config');
+import fs from 'node:fs';
+import path from 'node:path';
+import { DisTube } from 'distube';
+import { YouTubePlugin } from '@distube/youtube';
+import { EmbedBuilder } from 'discord.js';
+import { createNowPlayingEmbed, createPlayerButtons } from './ui.js';
 
-function setupPlayer(client) {
-  // Load YouTube cookies if available (optional, helps prevent YouTube 403 / bot checks)
+let distubeInstance = null;
+
+export function getDisTube() {
+  return distubeInstance;
+}
+
+export function initMusicPlayer(client) {
+  // Cek apakah cookies.json tersedia untuk bypass bot detection YouTube di hosting/VPS
   let cookies;
-  const cookiePath = path.join(process.cwd(), 'cookies.json');
+  const cookiePath = path.resolve('cookies.json');
   if (fs.existsSync(cookiePath)) {
     try {
       cookies = JSON.parse(fs.readFileSync(cookiePath, 'utf8'));
       console.log('✅ YouTube cookies.json berhasil dimuat.');
     } catch (err) {
-      console.warn('⚠️ Gagal mem-parsing cookies.json:', err.message);
+      console.warn('⚠️ Gagal membaca cookies.json:', err.message);
     }
   }
 
-  // Initialize YouTube Plugin with high-performance stream settings
   const youtubePlugin = new YouTubePlugin({
     cookies,
     ytdlOptions: {
-      highWaterMark: 1 << 25, // 32MB stream buffer
+      highWaterMark: 1 << 25, // Buffer 32MB
       quality: 'highestaudio',
       filter: 'audioonly',
       liveBuffer: 40000,
     },
   });
 
-  // Initialize DisTube instance
   const distube = new DisTube(client, {
     emitNewSongOnly: true,
     emitAddSongWhenCreatingQueue: false,
     emitAddListWhenCreatingQueue: false,
-    savePreviousSongs: true, // Enables queue.previous() functionality
+    savePreviousSongs: true, // Dukungan untuk fitur prev / previous
     nsfw: true,
     joinNewVoiceChannel: false,
     plugins: [youtubePlugin],
@@ -54,7 +57,7 @@ function setupPlayer(client) {
     },
   });
 
-  // DisTube Events
+  // Event playSong (ketika sebuah lagu mulai dimainkan)
   distube.on('playSong', async (queue, song) => {
     if (!queue.textChannel) return;
 
@@ -66,13 +69,13 @@ function setupPlayer(client) {
         components,
       });
 
-      // Simpan reference message untuk kontrol tombol jika diperlukan
       queue._lastPlayerMessage = message;
     } catch (err) {
       console.error('Error saat mengirim pesan playSong:', err.message);
     }
   });
 
+  // Event addSong (ketika lagu tunggal ditambahkan ke antrean)
   distube.on('addSong', (queue, song) => {
     if (!queue.textChannel) return;
 
@@ -92,6 +95,7 @@ function setupPlayer(client) {
     queue.textChannel.send({ embeds: [embed] }).catch(() => {});
   });
 
+  // Event addList (ketika playlist YouTube ditambahkan ke antrean)
   distube.on('addList', (queue, playlist) => {
     if (!queue.textChannel) return;
 
@@ -103,7 +107,7 @@ function setupPlayer(client) {
       .addFields(
         { name: '🔢 Total Lagu', value: `${playlist.songs.length} lagu`, inline: true },
         { name: '⏱️ Total Durasi', value: playlist.formattedDuration || 'N/A', inline: true },
-        { name: '📌 Posisi Antrean', value: `Dimulai dari #${queue.songs.length - playlist.songs.length + 1}`, inline: true },
+        { name: '📌 Posisi Antrean', value: `Mulai dari #${queue.songs.length - playlist.songs.length + 1}`, inline: true },
       )
       .setFooter({ text: `Diminta oleh ${playlist.user?.tag || playlist.user?.username || 'User'}` })
       .setTimestamp();
@@ -111,6 +115,7 @@ function setupPlayer(client) {
     queue.textChannel.send({ embeds: [embed] }).catch(() => {});
   });
 
+  // Event finish (ketika seluruh lagu dalam playlist selesai dimainkan)
   distube.on('finish', (queue) => {
     if (!queue.textChannel) return;
     const embed = new EmbedBuilder()
@@ -121,33 +126,30 @@ function setupPlayer(client) {
     queue.textChannel.send({ embeds: [embed] }).catch(() => {});
   });
 
+  // Event empty (ketika voice channel kosong ditinggalkan user)
   distube.on('empty', (queue) => {
     if (!queue.textChannel) return;
     const embed = new EmbedBuilder()
       .setColor(0xED4245)
       .setTitle('👋 Voice Channel Kosong')
-      .setDescription('Semua anggota telah meninggalkan voice channel. Bot menghentikan pemutaran.');
+      .setDescription('Semua anggota telah meninggalkan voice channel. Bot menghentikan musik.');
 
     queue.textChannel.send({ embeds: [embed] }).catch(() => {});
   });
 
-  distube.on('error', (error, queue, song) => {
-    console.error('DisTube error:', error);
+  // Event error
+  distube.on('error', (error, queue) => {
+    console.error('DisTube stream error:', error);
     if (queue && queue.textChannel) {
       const embed = new EmbedBuilder()
         .setColor(0xED4245)
-        .setTitle('⚠️ Terjadi Kesalahan Saat Streaming')
+        .setTitle('⚠️ Terjadi Kesalahan Streaming')
         .setDescription(`Error: \`${error.message.slice(0, 200)}\``);
 
       queue.textChannel.send({ embeds: [embed] }).catch(() => {});
     }
   });
 
-  distube.on('disconnect', (queue) => {
-    console.log(`Bot terputus dari voice channel di guild: ${queue.id}`);
-  });
-
+  distubeInstance = distube;
   return distube;
 }
-
-module.exports = { setupPlayer };

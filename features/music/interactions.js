@@ -1,18 +1,20 @@
-const { createNowPlayingEmbed, createPlayerButtons, formatRepeatMode } = require('./playerEmbed');
+import { getDisTube } from './player.js';
+import { formatRepeatMode, createNowPlayingEmbed, createPlayerButtons } from './ui.js';
 
-async function handleButtonInteraction(interaction, distube) {
+export async function handleMusicButton(interaction) {
   if (!interaction.isButton()) return false;
 
   const { customId, guildId, member } = interaction;
-  if (!customId.startsWith('btn_')) return false;
+  if (!customId.startsWith('music_')) return false;
 
-  const queue = distube.getQueue(guildId);
+  const distube = getDisTube();
+  const queue = distube?.getQueue(guildId);
 
-  // Check voice channel membership
+  // Validasi voice channel user
   const memberVoice = member.voice?.channel;
   if (!memberVoice) {
     await interaction.reply({
-      content: '❌ Kamu harus berada di dalam voice channel untuk menggunakan tombol kontrol!',
+      content: '❌ Kamu harus berada di dalam voice channel untuk memakai tombol kontrol musik!',
       ephemeral: true,
     });
     return true;
@@ -28,7 +30,7 @@ async function handleButtonInteraction(interaction, distube) {
 
   try {
     switch (customId) {
-      case 'btn_prev': {
+      case 'music_prev': {
         try {
           const song = await queue.previous();
           await interaction.reply({
@@ -43,7 +45,7 @@ async function handleButtonInteraction(interaction, distube) {
         break;
       }
 
-      case 'btn_pause': {
+      case 'music_pause': {
         if (queue.paused) {
           queue.resume();
           await interaction.reply({
@@ -56,7 +58,6 @@ async function handleButtonInteraction(interaction, distube) {
           });
         }
 
-        // Update original player message embed & buttons if possible
         if (interaction.message && queue.songs[0]) {
           await interaction.message.edit({
             embeds: [createNowPlayingEmbed(queue, queue.songs[0])],
@@ -66,7 +67,7 @@ async function handleButtonInteraction(interaction, distube) {
         break;
       }
 
-      case 'btn_skip': {
+      case 'music_skip': {
         try {
           const song = await queue.skip();
           await interaction.reply({
@@ -88,7 +89,7 @@ async function handleButtonInteraction(interaction, distube) {
         break;
       }
 
-      case 'btn_shuffle': {
+      case 'music_shuffle': {
         if (queue.songs.length <= 1) {
           await interaction.reply({
             content: '❌ Tidak cukup lagu di antrean untuk diacak!',
@@ -104,7 +105,7 @@ async function handleButtonInteraction(interaction, distube) {
         break;
       }
 
-      case 'btn_loop': {
+      case 'music_loop': {
         const nextMode = (queue.repeatMode + 1) % 3;
         queue.setRepeatMode(nextMode);
 
@@ -121,7 +122,7 @@ async function handleButtonInteraction(interaction, distube) {
         break;
       }
 
-      case 'btn_stop': {
+      case 'music_stop': {
         await queue.stop();
         await interaction.reply({
           content: `⏹️ **${member.user.username}** telah menghentikan pemutaran musik.`,
@@ -129,9 +130,9 @@ async function handleButtonInteraction(interaction, distube) {
         break;
       }
 
-      case 'btn_queue': {
+      case 'music_queue': {
         const currentSong = queue.songs[0];
-        const upcomingSongs = queue.songs.slice(1, 6); // Preview top 5
+        const upcomingSongs = queue.songs.slice(1, 6);
 
         let text = `**Sedang Diputar:** [${currentSong.name}](${currentSong.url}) (${currentSong.formattedDuration})\n\n`;
         if (upcomingSongs.length > 0) {
@@ -154,15 +155,13 @@ async function handleButtonInteraction(interaction, distube) {
 
     return true;
   } catch (error) {
-    console.error('Error saat menangani button interaction:', error);
+    console.error('Error button handler:', error);
     if (!interaction.replied && !interaction.deferred) {
       await interaction.reply({
-        content: `⚠️ Terjadi kesalahan saat memproses tombol: \`${error.message}\``,
+        content: `⚠️ Terjadi kesalahan: \`${error.message}\``,
         ephemeral: true,
       });
     }
     return true;
   }
 }
-
-module.exports = { handleButtonInteraction };

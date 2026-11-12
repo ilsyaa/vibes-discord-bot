@@ -1,152 +1,147 @@
-# Vibes Discord - Bot Musik YouTube Node.js (Stream Mode)
+# Vibes Discord - Modular Personal Bot (ESM)
 
-Bot musik Discord modern dan performa tinggi menggunakan **Node.js**, **Discord.js v14**, **DisTube**, dan **@distube/youtube**. Didesain optimal dengan **Stream Mode** langsung dari YouTube ke Discord voice channel tanpa perlu mendownload file video/audio ke penyimpanan lokal (zero disk I/O, latensi rendah, dan hemat RAM).
-
----
-
-## ✨ Fitur Utama
-
-- **YouTube Playback Lengkap**:
-  - 🔗 **Link Video YouTube**: `https://www.youtube.com/watch?v=...` atau `https://youtu.be/...`
-  - 📑 **Link Playlist YouTube**: `https://www.youtube.com/playlist?list=...` (otomatis memuat seluruh lagu dalam antrean)
-  - 🔍 **Pencarian Judul**: Cukup ketik judul lagu (misal: `!play lofi hip hop` atau `/play query:lofi hip hop`)
-- **Sistem Playlist & Antrean (Queue)**:
-  - Otomatis menambahkan lagu baru ke antrean jika sedang ada lagu yang berputar ("nambah di playlist").
-  - Menampilkan durasi, channel pembuat, jumlah total antrean, dan siapa yang meminta lagu.
-- **Navigasi & Kontrol Lengkap**:
-  - ⏭️ **Skip / Next**: Lewati lagu saat ini ke lagu berikutnya.
-  - ⏮️ **Prev / Previous**: Putar kembali lagu yang baru saja diputar dari riwayat.
-  - 📜 **Queue / Playlist**: Lihat daftar antrean lagu saat ini.
-  - ⏸️ **Pause** & ▶️ **Resume**: Jeda dan lanjutkan pemutaran.
-  - ⏹️ **Stop**: Hentikan pemutaran, bersihkan antrean, dan bot keluar dari voice channel.
-  - 🔀 **Shuffle**: Acak urutan lagu dalam antrean.
-  - 🔁 **Loop / Repeat**: 3 Mode pengulangan (Off, Ulangi Lagu Ini, Ulangi Seluruh Antrean).
-  - 🔊 **Volume**: Kontrol tingkat suara lagu (1% - 100%).
-- **Interactive UI Buttons**:
-  - Setiap lagu yang berputar dilengkapi dengan tombol interaktif Discord (⏮️ Prev, ⏯️ Pause/Resume, ⏭️ Skip, 🔀 Shuffle, ⏹️ Stop, 🔁 Loop, 📜 Antrean) sehingga pengguna tidak perlu repot mengetik perintah berulang kali.
-- **Dua Metode Kontrol (Dual Interface)**:
-  - ⚡ **Slash Commands**: `/play`, `/skip`, `/prev`, `/queue`, `/pause`, `/resume`, `/stop`, `/loop`, `/shuffle`, `/volume`, `/nowplaying`.
-  - 💬 **Prefix Commands**: `!play` (alias `!p`), `!skip` (alias `!next`, `!s`), `!prev`, `!queue` (alias `!q`, `!playlist`), `!pause`, `!resume`, `!stop`, dll.
-- **Optimal Stream Mode**:
-  - Audio di-transcode langsung secara on-the-fly via **FFmpeg chunk streaming** ke Discord AudioPlayer Opus stream.
-  - Dilengkapi fitur buffer pintar (`highWaterMark: 32MB`, live stream buffer, auto-reconnect stream flag) agar suara jernih tanpa putus-putus.
-  - Dukungan opsional `cookies.json` untuk mencegah blokir/bot detection dari YouTube.
+Bot Discord serbaguna (*multi-purpose*) untuk kebutuhan server pribadi Anda. Dirancang dengan **arsitektur modular berbasis fitur terisolasi**, menggunakan **ECMAScript Modules (ESM)** modern, serta mendukung **Slash Commands (/)** standar Discord dan **Prefix Commands (!)** secara bersamaan.
 
 ---
 
-## 📁 Struktur Direktori
+## 🏗️ Konsep Arsitektur Terisolasi (`features/`)
+
+Setiap fitur berada di dalam foldernya masing-masing di bawah direktori `features/`. Jika Anda ingin:
+- **Menambah fitur baru** (misal: AI chat, giveaway, level, reminder): Cukup buat folder baru di `features/<nama_fitur>/` dengan file `index.js`. Loader akan otomatis memuatnya tanpa mengganggu fitur lain.
+- **Menghapus / Menonaktifkan fitur**: Cukup hapus atau ubah nama foldernya. Fitur lain tidak akan terdampak.
+
+Struktur folder:
 
 ```text
 vibes-discord/
-├── src/
-│   ├── index.js               # Entry point utama bot
-│   ├── config.js              # Manajemen konfigurasi environment
-│   ├── player.js              # Setup DisTube engine & YouTube streaming
-│   ├── deploy-commands.js     # Skrip deploy Slash Commands ke Discord API
-│   ├── ui/
-│   │   ├── playerEmbed.js     # Desain Embed & Tombol Pemutar Interaktif
-│   │   └── buttonHandler.js   # Handler event interaksi tombol
-│   └── commands/
-│       ├── play.js            # Perintah play (video, playlist, search)
-│       ├── skip.js            # Perintah skip / next
-│       ├── prev.js            # Perintah prev (lagu sebelumnya)
-│       ├── queue.js           # Perintah queue / playlist
-│       ├── pause.js           # Perintah pause
-│       ├── resume.js          # Perintah resume
-│       ├── stop.js            # Perintah stop
-│       ├── loop.js            # Perintah loop (off/song/queue)
-│       ├── shuffle.js         # Perintah shuffle antrean
-│       ├── volume.js          # Perintah atur volume
-│       └── nowplaying.js      # Perintah info lagu saat ini
-├── .env.example               # Template environment variables
-├── cookies.example.json       # Template YouTube cookies (opsional)
+├── index.js                  # Entry point utama bot
+├── core/                     # Fondasi inti bot (tidak perlu sering diubah)
+│   ├── client.js             # Setup Discord Client, event bus & dispatcher
+│   ├── loader.js             # Auto-discovery loader untuk seluruh fitur
+│   ├── deploy.js             # Deployer Slash Commands otomatis ke Discord API
+│   └── config.js             # Konfigurasi environment (.env)
+├── features/                 # FITUR TERISOLASI (Modular Feature Bags)
+│   ├── general/              # Modul fitur umum (ping, help, dll.)
+│   │   ├── index.js          # Export manifest fitur General
+│   │   └── commands.js       # Command definition & logic
+│   └── music/                # Modul fitur musik YouTube Stream Mode
+│       ├── index.js          # Export manifest fitur Music
+│       ├── player.js         # Setup DisTube engine & YouTube streaming
+│       ├── ui.js             # Komponen Embed & Tombol Pemutar Interaktif
+│       ├── interactions.js   # Event handler tombol musik
+│       └── commands.js       # Commands (/play, /skip, /prev, /queue, dll.)
+├── .env.example
+├── cookies.example.json
 ├── package.json
 └── README.md
 ```
 
 ---
 
-## 🚀 Panduan Instalasi & Menjalankan Bot
+## 🎵 Fitur Musik (YouTube Stream Mode)
 
-### 1. Prasyarat Sistem
-- **Node.js**: Versi 20, 22, atau 24+
-- **FFmpeg**: Terpasang di sistem (`sudo apt install ffmpeg` di Ubuntu/Debian)
+- **On-the-fly Transcoding (FFmpeg)**: Audio langsung dialirkan sebagai chunk data ke Discord tanpa perlu mendownload file `.mp4`/`.mp3` ke disk penyimpanan.
+- **Format YouTube Fleksibel**:
+  - Link Video: `https://www.youtube.com/watch?v=...`
+  - Link Playlist: `https://www.youtube.com/playlist?list=...`
+  - Pencarian Judul Teks: `/play query:lofi beats` atau `!play lofi beats`
+- **Antrean Playlist Dinamis**: Memutar lagu sambil menambah antrean berikutnya secara otomatis.
+- **Navigasi Lengkap**:
+  - `skip` / `next`: Lanjut ke lagu berikutnya.
+  - `prev` / `previous`: Putar balik ke lagu sebelumnya dari riwayat.
+  - `queue` / `playlist`: Tinjau urutan daftar putar.
+  - `pause` & `resume`: Jeda dan lanjutkan pemutaran.
+  - `stop`: Hentikan musik, bersihkan playlist, dan keluar dari voice channel.
+  - `shuffle`: Mengacak urutan antrean.
+  - `loop`: Mode repeat (Off, Song, Queue).
+  - `volume`: Atur volume (1% - 100%).
+- **Interactive UI Buttons**: Pesan status musik dilengkapi tombol kontrol langsung (⏮️ Prev, ⏯️ Pause/Resume, ⏭️ Skip, 🔀 Shuffle, ⏹️ Stop, 🔁 Loop, 📜 Antrean).
 
-### 2. Konfigurasi Bot di Discord Developer Portal
-1. Buka [Discord Developer Portal](https://discord.com/developers/applications).
-2. Buat aplikasi baru (**New Application**), beri nama (misal: `Vibes Music`).
-3. Masuk ke menu **Bot**:
-   - Klik **Reset Token** dan salin bot token Anda.
-   - Di bagian **Privileged Gateway Intents**, **AKTIFKAN**:
-     - ✅ **Message Content Intent** (diperlukan untuk prefix command `!play`)
-     - ✅ **Server Members Intent** (opsional tapi disarankan)
-4. Masuk ke menu **OAuth2 -> URL Generator**:
-   - Centang scopes: `bot`, `applications.commands`
-   - Centang permissions:
-     - `Connect`
-     - `Speak`
-     - `Send Messages`
-     - `Embed Links`
-     - `Read Message History`
-     - `Use Slash Commands`
-   - Salin link undangan dan buka di browser untuk mengundang bot ke server Discord Anda.
+---
 
-### 3. Konfigurasi File Environment (.env)
-Salin file `.env.example` menjadi `.env`:
+## ⌨️ Daftar Perintah
+
+| Slash Command | Prefix Command | Deskripsi |
+| :--- | :--- | :--- |
+| `/play <query>` | `!play <query>` atau `!p <query>` | Putar link video, playlist, atau kata kunci judul YouTube |
+| `/skip` | `!skip`, `!next`, `!s` | Lewati lagu yang sedang diputar |
+| `/prev` | `!prev`, `!previous` | Putar kembali lagu sebelumnya |
+| `/queue` | `!queue`, `!q`, `!playlist` | Lihat daftar antrean musik |
+| `/pause` | `!pause` | Jeda pemutaran lagu |
+| `/resume` | `!resume`, `!unpause` | Lanjutkan pemutaran lagu |
+| `/stop` | `!stop`, `!leave` | Hentikan pemutaran dan kosongkan antrean |
+| `/loop [mode]` | `!loop` | Atur perulangan (Lagu / Playlist / Off) |
+| `/shuffle` | `!shuffle`, `!mix` | Acak urutan playlist |
+| `/volume <1-100>` | `!volume <1-100>`, `!vol` | Atur intensitas suara |
+| `/nowplaying` | `!nowplaying`, `!np` | Lihat detail lagu yang sedang berjalan |
+| `/ping` | `!ping` | Cek latensi bot dan koneksi Discord Gateway |
+| `/help` | `!help`, `!h` | Tampilkan menu bantuan |
+
+---
+
+## 🚀 Panduan Menjalankan
+
+### 1. Konfigurasi Token di `.env`
+Salin template `.env.example` ke `.env`:
 ```bash
 cp .env.example .env
 ```
-Buka `.env` dan masukkan data bot Anda:
+Isi file `.env` dengan kredensial aplikasi Discord Anda:
 ```env
-DISCORD_TOKEN=masukkan_token_bot_anda_disini
-CLIENT_ID=masukkan_application_id_anda_disini
+DISCORD_TOKEN=token_bot_anda_disini
+CLIENT_ID=client_id_anda_disini
 PREFIX=!
 DEFAULT_VOLUME=50
 ```
 
-### 4. Daftarkan Slash Commands ke Discord
-Jalankan perintah ini sekali untuk mendaftarkan semua slash commands (`/play`, `/skip`, `/prev`, dll):
+> **Penting**: Di **Discord Developer Portal -> Bot -> Privileged Gateway Intents**, pastikan opsi **Message Content Intent** sudah diaktifkan agar prefix command `!` dapat dibaca.
+
+### 2. Deploy Slash Commands
+Jalankan perintah ini sekali untuk mendaftarkan semua slash commands dari semua modul fitur ke Discord API:
 ```bash
 npm run deploy
 ```
 
-### 5. Jalankan Bot
-Untuk mode produksi:
+### 3. Jalankan Bot
+Mode produksi:
 ```bash
 npm start
 ```
-Untuk mode pengembangan (auto-reload saat file diedit):
+Mode pengembangan (*auto-restart saat kode diubah*):
 ```bash
 npm run dev
 ```
 
 ---
 
-## 📖 Daftar Perintah
+## 🧩 Cara Membuat Fitur Baru (Contoh: Fitur Catatan / Notes)
 
-| Slash Command | Prefix Command | Deskripsi |
-| :--- | :--- | :--- |
-| `/play <query>` | `!play <query>` atau `!p <query>` | Putar lagu dari link YouTube, playlist YouTube, atau kata kunci judul |
-| `/skip` | `!skip`, `!next`, `!s` | Lewati lagu yang sedang diputar ke lagu berikutnya di playlist |
-| `/prev` | `!prev`, `!previous` | Putar kembali lagu yang baru saja selesai dari riwayat pemutaran |
-| `/queue` | `!queue`, `!playlist`, `!q` | Lihat daftar antrean lagu yang sedang diputar |
-| `/pause` | `!pause` | Jeda pemutaran musik sementara |
-| `/resume` | `!resume`, `!unpause` | Lanjutkan lagu yang sedang dijeda |
-| `/stop` | `!stop`, `!leave` | Hentikan musik, kosongkan antrean, dan keluar dari voice channel |
-| `/loop [mode]` | `!loop [off/song/queue]` | Atur mode pengulangan (Lagu / Seluruh Playlist / Nonaktif) |
-| `/shuffle` | `!shuffle`, `!mix` | Acak urutan lagu yang belum diputar di antrean |
-| `/volume <1-100>` | `!volume <1-100>`, `!vol <1-100>` | Atur tingkat suara lagu |
-| `/nowplaying` | `!nowplaying`, `!np` | Tampilkan kartu info lagu yang sedang aktif beserta tombol kontrol |
+Cukup buat folder baru di `features/notes/index.js`:
 
----
+```javascript
+import { SlashCommandBuilder } from 'discord.js';
 
-## 💡 Tips & Optimalisasi Stream Mode YouTube
+export const noteCommand = {
+  data: new SlashCommandBuilder()
+    .setName('note')
+    .setDescription('Simpan catatan sederhana')
+    .addStringOption(opt => opt.setName('text').setDescription('Isi catatan').setRequired(true)),
+  aliases: ['catatan'],
 
-1. **Mengapa Stream Mode?**
-   Bot ini tidak pernah mendownload file `.mp4` atau `.mp3` ke dalam harddisk / SSD VPS Anda. Setiap audio di-stream langsung berupa buffer bitstream yang dikonversi langsung oleh FFmpeg menjadi paket Opus Discord. Hal ini mencegah penggunaan disk penuh dan membuat lagu langsung berbunyi dalam hitungan detik setelah di-request.
+  async executeSlash(interaction) {
+    const text = interaction.options.getString('text');
+    return interaction.reply(`📝 Catatan tersimpan: "${text}"`);
+  },
 
-2. **Menghindari Error 403 / "Sign in to confirm you're not a bot"**:
-   Jika Anda menjalankan bot di server hosting/VPS (seperti AWS, DigitalOcean, Oracle Cloud, GCP, Hetzner), IP server cloud terkadang dibatasi atau diberi bot challenge oleh YouTube.
-   - Solusi: Ekspor cookie YouTube Anda menggunakan ekstensi browser (misalnya *EditThisCookie* atau *Get cookies.txt LOCALLY*).
-   - Simpan cookies dalam bentuk format JSON ke file `cookies.json` di root folder proyek ini (lihat contoh format di `cookies.example.json`).
-   - Bot akan otomatis membaca `cookies.json` saat startup untuk autentikasi stream tanpa terkena batasan IP.
+  async executePrefix(message, args) {
+    return message.reply(`📝 Catatan tersimpan: "${args.join(' ')}"`);
+  }
+};
+
+export default {
+  name: 'Notes',
+  description: 'Fitur catatan pribadi',
+  commands: [noteCommand],
+};
+```
+Selesai! Fitur baru langsung otomatis terdaftar ke bot dan siap di-deploy dengan `npm run deploy`.
