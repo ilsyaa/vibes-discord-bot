@@ -36,6 +36,15 @@ export async function initMusicPlayer(client) {
   if (youtubeFetch) {
     console.log('🌐 YouTube requests menggunakan proxy yang dikonfigurasi.');
   }
+  if (config.youtubeProxy) {
+    // DisTube hands the resolved media URL to ffmpeg, which runs outside Node's
+    // fetch path. Keep ffmpeg on the same egress IP as the YouTube lookup.
+    for (const variable of ['http_proxy', 'https_proxy', 'HTTP_PROXY', 'HTTPS_PROXY']) {
+      process.env[variable] = config.youtubeProxy;
+    }
+    process.env.no_proxy = '';
+    process.env.NO_PROXY = '';
+  }
 
   let poToken;
   try {
