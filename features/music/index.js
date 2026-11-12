@@ -12,8 +12,8 @@ import {
   shuffleCommand,
   volumeCommand,
   nowPlayingCommand,
+  diagnoseCommand,
 } from './commands.js';
-
 export default {
   name: 'Music',
   description: 'Pemutar musik YouTube performa tinggi berbasis Stream Mode FFmpeg',
@@ -41,5 +41,6 @@ export default {
     shuffleCommand,
     volumeCommand,
     nowPlayingCommand,
+    diagnoseCommand,
   ],
 };

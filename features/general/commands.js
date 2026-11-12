@@ -44,6 +44,64 @@ export const pingCommand = {
     return sent.edit({ content: null, embeds: [embed] });
   },
 };
+export const statsCommand = {
+  data: new SlashCommandBuilder()
+    .setName('stats')
+    .setDescription('Lihat status operasional bot dan resource runtime'),
+  aliases: ['status'],
+
+  async executeSlash(interaction, client) {
+    return interaction.reply({ embeds: [buildStatsEmbed(client)] });
+  },
+
+  async executePrefix(message, args, client) {
+    return message.reply({ embeds: [buildStatsEmbed(client)] });
+  },
+};
+
+function buildStatsEmbed(client) {
+  const cachedMembers = [...client.guilds.cache.values()]
+    .reduce((total, guild) => total + (guild.memberCount || 0), 0);
+  const websocketPing = client.ws.ping >= 0 ? `${Math.round(client.ws.ping)}ms` : 'Belum tersedia';
+
+  return new EmbedBuilder()
+    .setColor(0x5865F2)
+    .setTitle('📊 Statistik Operasional Bot')
+    .setDescription('Status runtime saat ini; angka historis belum disimpan.')
+    .addFields(
+      { name: '⏱️ Uptime', value: formatDuration(process.uptime() * 1000), inline: true },
+      { name: '🏠 Server', value: `${client.guilds.cache.size}`, inline: true },
+      { name: '👥 Cached Members', value: `${cachedMembers}`, inline: true },
+      { name: '⚡ Discord WS', value: websocketPing, inline: true },
+      { name: '💾 RSS Memory', value: formatBytes(process.memoryUsage().rss), inline: true },
+      { name: '🧩 Loaded Commands', value: `${client.commands.size}`, inline: true },
+      { name: '🟢 Runtime', value: `Node.js ${process.version}`, inline: false },
+    )
+    .setFooter({ text: 'Vibes Discord Bot • Operational stats only' })
+    .setTimestamp();
+}
+
+function formatDuration(milliseconds) {
+  let seconds = Math.floor(milliseconds / 1000);
+  const days = Math.floor(seconds / 86400);
+  seconds %= 86400;
+  const hours = Math.floor(seconds / 3600);
+  seconds %= 3600;
+  const minutes = Math.floor(seconds / 60);
+  seconds %= 60;
+
+  return [
+    days ? `${days}d` : '',
+    hours ? `${hours}h` : '',
+    minutes ? `${minutes}m` : '',
+    `${seconds}s`,
+  ].filter(Boolean).join(' ');
+}
+
+function formatBytes(bytes) {
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
 
 export const helpCommand = {
   data: new SlashCommandBuilder()
@@ -80,12 +138,14 @@ function buildHelpEmbed(client) {
           '`/loop` atau `!loop` - Atur pengulangan (off / song / queue)\n' +
           '`/shuffle` atau `!shuffle` - Acak antrean lagu\n' +
           '`/volume [1-100]` atau `!volume [1-100]` - Atur volume suara\n' +
-          '`/nowplaying` atau `!np` - Informasi lagu yang sedang berputar',
+          '`/nowplaying` atau `!np` - Informasi lagu yang sedang berputar\n' +
+          '`/diagnose` atau `!diagnose` - Diagnostik voice, permission, dan queue',
       },
       {
         name: '🛠️ General / Utilities',
         value:
           '`/ping` atau `!ping` - Cek latensi respons bot\n' +
+          '`/stats` atau `!stats` - Lihat status operasional bot\n' +
           '`/help` atau `!help` - Menampilkan panduan bantuan ini',
       },
     )

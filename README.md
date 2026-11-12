@@ -74,6 +74,8 @@ vibes-discord/
 | `/shuffle` | `!shuffle`, `!mix` | Acak urutan playlist |
 | `/volume <1-100>` | `!volume <1-100>`, `!vol` | Atur intensitas suara |
 | `/nowplaying` | `!nowplaying`, `!np` | Lihat detail lagu yang sedang berjalan |
+| `/diagnose` | `!diagnose`, `!diag` | Cek voice channel, permission, queue, dan koneksi bot |
+| `/stats` | `!stats`, `!status` | Lihat statistik operasional runtime bot |
 | `/ping` | `!ping` | Cek latensi bot dan koneksi Discord Gateway |
 | `/help` | `!help`, `!h` | Tampilkan menu bantuan |
 

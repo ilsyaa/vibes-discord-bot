@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
 import { getDisTube } from './player.js';
 import { formatRepeatMode, createNowPlayingEmbed, createPlayerButtons } from './ui.js';
 
@@ -499,6 +499,102 @@ export const nowPlayingCommand = {
     });
   },
 };
+export const diagnoseCommand = {
+  data: new SlashCommandBuilder()
+    .setName('diagnose')
+    .setDescription('Periksa voice channel, permission, queue, dan koneksi bot'),
+  aliases: ['diag', 'health'],
+
+  async executeSlash(interaction) {
+    return interaction.reply({
+      embeds: [buildDiagnosticsEmbed(
+        interaction.guild,
+        interaction.member,
+        interaction.channel,
+        interaction.client,
+      )],
+      ephemeral: true,
+    });
+  },
+
+  async executePrefix(message, args, client) {
+    return message.reply({
+      embeds: [buildDiagnosticsEmbed(message.guild, message.member, message.channel, client)],
+    });
+  },
+};
+
+function buildDiagnosticsEmbed(guild, member, textChannel, client) {
+  const botMember = guild.members.me;
+  const userVoice = member?.voice?.channel;
+  const botVoice = botMember?.voice?.channel;
+  const queue = getDisTube()?.getQueue(guild.id);
+  const textPermissions = botMember ? textChannel?.permissionsFor(botMember) : null;
+  const voicePermissions = botMember && userVoice ? userVoice.permissionsFor(botMember) : null;
+  const websocketPing = client.ws.ping >= 0 ? `${Math.round(client.ws.ping)}ms` : 'Belum tersedia';
+
+  const voiceAlignment = !botVoice
+    ? 'ℹ️ Bot belum berada di voice channel.'
+    : !userVoice
+      ? `ℹ️ Bot berada di <#${botVoice.id}>.`
+      : botVoice.id === userVoice.id
+        ? `✅ Satu channel: <#${userVoice.id}>`
+        : `❌ Bot berada di <#${botVoice.id}>. Join channel yang sama.`;
+
+  const voiceStatus = userVoice
+    ? `✅ User: <#${userVoice.id}>`
+    : '❌ Join voice channel terlebih dahulu.';
+
+  const queueStatus = queue
+    ? `✅ ${queue.songs.length} lagu • ${queue.paused ? 'paused' : 'playing'}`
+    : 'ℹ️ Tidak ada queue aktif.';
+
+  return new EmbedBuilder()
+    .setColor(0x5865F2)
+    .setTitle('🩺 Diagnostik Music Bot')
+    .setDescription('Pemeriksaan read-only untuk menemukan penyebab playback gagal.')
+    .addFields(
+      { name: '🎙️ Voice User', value: voiceStatus, inline: false },
+      { name: '🔗 Voice Alignment', value: voiceAlignment, inline: false },
+      {
+        name: '🔊 Voice Permissions',
+        value: userVoice
+          ? formatPermissionStatus(voicePermissions, [
+            [PermissionFlagsBits.ViewChannel, 'View Channel'],
+            [PermissionFlagsBits.Connect, 'Connect'],
+            [PermissionFlagsBits.Speak, 'Speak'],
+          ])
+          : '⚠️ Unknown sampai user join voice channel.',
+        inline: false,
+      },
+      {
+        name: '💬 Text Permissions',
+        value: formatPermissionStatus(textPermissions, [
+          [PermissionFlagsBits.ViewChannel, 'View Channel'],
+          [PermissionFlagsBits.SendMessages, 'Send Messages'],
+          [PermissionFlagsBits.EmbedLinks, 'Embed Links'],
+        ]),
+        inline: false,
+      },
+      { name: '📑 Queue', value: queueStatus, inline: true },
+      { name: '⚡ Discord WS', value: websocketPing, inline: true },
+    )
+    .setFooter({ text: 'Read-only diagnostic • tidak mengubah konfigurasi' })
+    .setTimestamp();
+}
+
+function formatPermissionStatus(permissions, requiredPermissions) {
+  if (!permissions) return '⚠️ Status permission belum tersedia.';
+
+  const missing = requiredPermissions
+    .filter(([permission]) => !permissions.has(permission))
+    .map(([, name]) => name);
+
+  return missing.length
+    ? `❌ Missing: ${missing.join(', ')}`
+    : '✅ Semua permission yang dibutuhkan tersedia.';
+}
+
 
 function buildQueueEmbed(queue) {
   const currentSong = queue.songs[0];
