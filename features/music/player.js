@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DisTube } from 'distube';
 import { YouTubePlugin } from '@distube/youtube';
+import { createPoTokenProvider, Client } from '@distube/ytdl-core';
 import { EmbedBuilder } from 'discord.js';
 import { createNowPlayingEmbed, createPlayerButtons } from './ui.js';
 
@@ -11,7 +12,7 @@ export function getDisTube() {
   return distubeInstance;
 }
 
-export function initMusicPlayer(client) {
+export async function initMusicPlayer(client) {
   // Cek apakah cookies.json tersedia untuk bypass bot detection YouTube di hosting/VPS
   let cookies;
   const cookiePath = path.resolve('cookies.json');
@@ -24,9 +25,26 @@ export function initMusicPlayer(client) {
     }
   }
 
+  // Inisialisasi PO Token Provider (Proof-of-Origin Token) untuk bypass blokir IP VPS/Cloud
+  let poToken;
+  try {
+    poToken = await createPoTokenProvider();
+    console.log('🛡️ PO Token Provider berhasil diinisialisasi.');
+  } catch (err) {
+    console.warn('⚠️ Gagal membuat PO Token Provider:', err.message);
+  }
+
   const youtubePlugin = new YouTubePlugin({
     cookies,
     ytdlOptions: {
+      getPoToken: poToken,
+      clients: [
+        Client.Tv,
+        Client.WebEmbedded,
+        Client.Mweb,
+        Client.VisionOS,
+        Client.WebMusic,
+      ],
       highWaterMark: 1 << 25, // Buffer 32MB
       quality: 'highestaudio',
       filter: 'audioonly',

@@ -20,7 +20,7 @@ export default {
 
   // Hook inisialisasi engine DisTube saat bot start
   async init(client) {
-    initMusicPlayer(client);
+    await initMusicPlayer(client);
   },
 
   // Hook penanganan interaksi tombol (UI Buttons)
