@@ -154,6 +154,7 @@ export async function initMusicPlayer(client) {
   };
   youtubeStreamRelay = await createStreamRelay({
     createStream: async ({ url, info }) => {
+      const mediaInfo = info || await youtubePlugin.ytdl.getInfo(url);
       const session = await youtubeProxyPool.createSession();
       try {
         const streamYtdl = new Ytdl({
@@ -162,7 +163,7 @@ export async function initMusicPlayer(client) {
           getPoToken: poToken,
           clients: youtubeClients,
         });
-        const stream = streamYtdl.download(info || url, {
+        const stream = streamYtdl.download(mediaInfo, {
           filter: { hasAudio: true, hasVideo: false },
           quality: 'highestaudio',
           highWaterMark: 1 << 20,

@@ -43,8 +43,10 @@ export async function createStreamRelay({
     const entry = {
       source,
       stream: null,
+      response: null,
       timer: setTimeout(() => {
         entry.stream?.destroy();
+        entry.response?.destroy();
         entries.delete(token);
       }, ttlMs),
     };
@@ -77,6 +79,7 @@ export async function createStreamRelay({
     try {
       stream = await createStream(entry.source);
       entry.stream = stream;
+      entry.response = response;
       response.on('error', () => {});
       response.writeHead(200, {
         'Cache-Control': 'no-store',
@@ -89,6 +92,7 @@ export async function createStreamRelay({
       response.once('finish', () => removeEntry(token, entry));
       response.once('close', () => {
         entry.stream = null;
+        entry.response = null;
         if (!response.writableFinished) stream.destroy();
       });
       stream.pipe(response);
@@ -111,6 +115,7 @@ export async function createStreamRelay({
       for (const [token, entry] of entries) {
         clearTimeout(entry.timer);
         entry.stream?.destroy();
+        entry.response?.destroy();
         entries.delete(token);
       }
       if (!server.listening) return;
