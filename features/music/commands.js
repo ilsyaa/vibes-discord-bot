@@ -550,7 +550,7 @@ export const nowPlayingCommand = {
     .setDescription('Tampilkan informasi lagu yang sedang diputar saat ini'),
   aliases: ['np', 'current'],
 
-  async executeSlash(interaction) {
+  async executeSlash(interaction, client) {
     const distube = getDisTube();
     const queue = distube.getQueue(interaction.guildId);
 
@@ -564,11 +564,13 @@ export const nowPlayingCommand = {
     const song = queue.songs[0];
     return interaction.reply({
       embeds: [createNowPlayingEmbed(queue, song)],
-      components: createPlayerButtons(queue),
+      components: createPlayerButtons(queue, {
+        autoplayEnabled: client.store?.getGuildSettings?.(queue.id)?.autoplay === true,
+      }),
     });
   },
 
-  async executePrefix(message) {
+  async executePrefix(message, _args, client) {
     const distube = getDisTube();
     const queue = distube.getQueue(message.guildId);
 
@@ -579,7 +581,9 @@ export const nowPlayingCommand = {
     const song = queue.songs[0];
     return message.reply({
       embeds: [createNowPlayingEmbed(queue, song)],
-      components: createPlayerButtons(queue),
+      components: createPlayerButtons(queue, {
+        autoplayEnabled: client.store?.getGuildSettings?.(queue.id)?.autoplay === true,
+      }),
     });
   },
 };

@@ -34,8 +34,15 @@ export function createNowPlayingEmbed(queue, song) {
     .setTimestamp();
 }
 
-export function createPlayerButtons(queue) {
+export function clampVolume(value, fallback = 50) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(100, Math.max(0, Math.round(parsed)));
+}
+
+export function createPlayerButtons(queue, { autoplayEnabled = false } = {}) {
   const isPaused = queue ? queue.paused : false;
+  const volume = clampVolume(queue?.volume);
 
   const row1 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
@@ -74,6 +81,24 @@ export function createPlayerButtons(queue) {
       .setLabel('Loop')
       .setEmoji('🔁')
       .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId('music_volume_down')
+      .setLabel('-10%')
+      .setEmoji('🔉')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(!queue || volume <= 0),
+    new ButtonBuilder()
+      .setCustomId('music_autoplay')
+      .setLabel(autoplayEnabled ? 'Auto: On' : 'Auto: Off')
+      .setEmoji('🔄')
+      .setStyle(autoplayEnabled ? ButtonStyle.Success : ButtonStyle.Secondary)
+      .setDisabled(!queue),
+    new ButtonBuilder()
+      .setCustomId('music_volume_up')
+      .setLabel('+10%')
+      .setEmoji('🔊')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(!queue || volume >= 100),
     new ButtonBuilder()
       .setCustomId('music_queue')
       .setLabel('Antrean')

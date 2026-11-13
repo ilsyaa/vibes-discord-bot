@@ -23,8 +23,8 @@ export default {
     await initMusicPlayer(client);
   },
 
-  async onInteraction(interaction) {
-    return handleMusicButton(interaction);
+  async onInteraction(interaction, client) {
+    return handleMusicButton(interaction, client);
   },
 
   commands: [

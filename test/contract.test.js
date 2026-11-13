@@ -5,7 +5,9 @@ import { openStore } from '../core/storage/database.js';
 import { createDashboardServer } from '../dashboard/server.js';
 import { renderProfileCard } from '../features/general/profile-card.js';
 import { autoplayCommand } from '../features/music/commands.js';
+import { adjustVolume } from '../features/music/interactions.js';
 import { selectAutoplayRecommendation } from '../features/music/player.js';
+import { clampVolume, createPlayerButtons } from '../features/music/ui.js';
 import { ProxyPool } from '../core/proxy-pool.js';
 import { createStreamRelay } from '../core/stream-relay.js';
 
@@ -120,6 +122,33 @@ test('autoplay recommendation skips live, long, and already played tracks', () =
     },
   );
   assert.equal(recommendation.id, 'next');
+});
+
+test('player controls expose autoplay and bounded volume buttons', () => {
+  const rows = createPlayerButtons(
+    { paused: false, volume: 50, previousSongs: [], songs: [{}] },
+    { autoplayEnabled: true },
+  );
+  const buttons = rows.flatMap((row) => row.toJSON().components);
+  assert.deepEqual(buttons.map((button) => button.custom_id), [
+    'music_prev',
+    'music_pause',
+    'music_skip',
+    'music_shuffle',
+    'music_stop',
+    'music_loop',
+    'music_volume_down',
+    'music_autoplay',
+    'music_volume_up',
+    'music_queue',
+  ]);
+  assert.equal(buttons.find((button) => button.custom_id === 'music_autoplay').label, 'Auto: On');
+  assert.equal(buttons.find((button) => button.custom_id === 'music_volume_down').disabled, false);
+  assert.equal(clampVolume(-10), 0);
+  assert.equal(clampVolume(150), 100);
+  assert.equal(adjustVolume(0, -1), 0);
+  assert.equal(adjustVolume(100, 1), 100);
+  assert.equal(adjustVolume(50, 1), 60);
 });
 
 test('proxy pool rotates leases and applies cooldown after each response', async () => {

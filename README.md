@@ -65,7 +65,7 @@ vibes-discord/
   - `loop`: Mode repeat (Off, Song, Queue).
   - `volume`: Atur volume (0% - 100%; 0 = mute).
   - `autoplay`: Ambil satu rekomendasi terkait dari YouTube ketika antrean habis. Nonaktif secara default.
-- **Interactive UI Buttons**: Pesan status musik dilengkapi tombol kontrol langsung (⏮️ Prev, ⏯️ Pause/Resume, ⏭️ Skip, 🔀 Shuffle, ⏹️ Stop, 🔁 Loop, 📜 Antrean).
+- **Interactive UI Buttons**: Pesan status musik dilengkapi tombol kontrol langsung (⏮️ Prev, ⏯️ Pause/Resume, ⏭️ Skip, 🔀 Shuffle, 🔉/🔊 Volume, 🔄 Autoplay, ⏹️ Stop, 🔁 Loop, 📜 Antrean).
 
 ## 👤 Profile Musik
 

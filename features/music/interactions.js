@@ -1,7 +1,7 @@
 import { getDisTube } from './player.js';
-import { formatRepeatMode, createNowPlayingEmbed, createPlayerButtons } from './ui.js';
+import { clampVolume, formatRepeatMode, createNowPlayingEmbed, createPlayerButtons } from './ui.js';
 
-export async function handleMusicButton(interaction) {
+export async function handleMusicButton(interaction, client) {
   if (!interaction.isButton()) return false;
 
   const { customId, guildId, member } = interaction;
@@ -57,12 +57,7 @@ export async function handleMusicButton(interaction) {
           });
         }
 
-        if (interaction.message && queue.songs[0]) {
-          await interaction.message.edit({
-            embeds: [createNowPlayingEmbed(queue, queue.songs[0])],
-            components: createPlayerButtons(queue),
-          }).catch(() => {});
-        }
+        await refreshPlayerMessage(interaction, queue, client);
         break;
       }
 
@@ -112,12 +107,36 @@ export async function handleMusicButton(interaction) {
           content: `🔁 **${member.user.username}** mengubah mode repeat ke: **${formatRepeatMode(nextMode)}**`,
         });
 
-        if (interaction.message && queue.songs[0]) {
-          await interaction.message.edit({
-            embeds: [createNowPlayingEmbed(queue, queue.songs[0])],
-            components: createPlayerButtons(queue),
-          }).catch(() => {});
-        }
+        await refreshPlayerMessage(interaction, queue, client);
+        break;
+      }
+
+      case 'music_volume_down':
+      case 'music_volume_up': {
+        const direction = customId === 'music_volume_up' ? 1 : -1;
+        const volume = adjustVolume(queue.volume, direction);
+        queue.setVolume(volume);
+        await interaction.reply({
+          content: `🔊 **${member.user.username}** mengubah volume ke **${volume}%**.`,
+        });
+        await refreshPlayerMessage(interaction, queue, client);
+        break;
+      }
+
+      case 'music_autoplay': {
+        const current = client.store?.ensureGuildSettings?.(guildId) || { autoplay: false };
+        const enabled = !current.autoplay;
+        const settings = client.store?.updateGuildSettings?.(
+          guildId,
+          { autoplay: enabled },
+          member.user.id,
+        ) || { ...current, autoplay: enabled };
+        await interaction.reply({
+          content: settings.autoplay
+            ? '✅ Autoplay YouTube aktif. Bot akan melanjutkan dengan rekomendasi saat antrean habis.'
+            : '⏹️ Autoplay YouTube nonaktif. Bot berhenti setelah antrean habis.',
+        });
+        await refreshPlayerMessage(interaction, queue, client);
         break;
       }
 
@@ -163,4 +182,20 @@ export async function handleMusicButton(interaction) {
     }
     return true;
   }
+}
+
+export function adjustVolume(current, direction, step = 10) {
+  const delta = direction >= 0 ? Math.abs(step) : -Math.abs(step);
+  return clampVolume(clampVolume(current) + delta);
+}
+
+async function refreshPlayerMessage(interaction, queue, client) {
+  if (!interaction.message || !queue?.songs?.[0]) return;
+
+  await interaction.message.edit({
+    embeds: [createNowPlayingEmbed(queue, queue.songs[0])],
+    components: createPlayerButtons(queue, {
+      autoplayEnabled: client?.store?.getGuildSettings?.(queue.id)?.autoplay === true,
+    }),
+  }).catch(() => {});
 }

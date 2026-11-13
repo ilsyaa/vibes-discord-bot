@@ -188,7 +188,9 @@ export async function initMusicPlayer(client) {
 
     try {
       const embed = createNowPlayingEmbed(queue, song);
-      const components = createPlayerButtons(queue);
+      const components = createPlayerButtons(queue, {
+        autoplayEnabled: client.store?.getGuildSettings?.(queue.id)?.autoplay === true,
+      });
       const message = await queue.textChannel.send({
         embeds: [embed],
         components,
