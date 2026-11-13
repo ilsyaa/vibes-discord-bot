@@ -46,15 +46,15 @@ function drawBackground(context) {
 function drawHeader(context, displayName, summary) {
   context.fillStyle = '#f4d9df';
   context.font = '700 22px sans-serif';
-  context.fillText('VIBES PROFILE', 64, 56);
+  context.fillText('VIBES PROFILE', 220, 48);
 
   context.fillStyle = '#fff7f9';
   context.font = '700 42px sans-serif';
-  context.fillText(truncate(context, displayName || 'Listener', 390), 200, 116);
+  context.fillText(truncate(context, displayName || 'Listener', 390), 220, 104);
 
   context.fillStyle = '#f6b1c2';
   context.font = '500 20px sans-serif';
-  context.fillText('Your music activity at a glance', 200, 151);
+  context.fillText('Your music activity at a glance', 220, 140);
 
   const stats = [
     ['PLAYS', summary.plays],
