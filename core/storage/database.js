@@ -4,6 +4,7 @@ import { Database } from 'node:sqlite';
 import { createHash } from 'node:crypto';
 import { migrations } from './migrations.js';
 
+const metricColumns = new Set(['plays', 'skips', 'failures', 'commands', 'active_minutes']);
 const userMetricColumns = new Set(['commands', 'plays', 'active_minutes']);
 
 export function openStore(databasePath) {
