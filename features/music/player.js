@@ -7,9 +7,31 @@ import { EmbedBuilder } from 'discord.js';
 import { createNowPlayingEmbed, createPlayerButtons } from './ui.js';
 
 let distubeInstance = null;
+const recordedProfileTracks = new WeakSet();
 
 export function getDisTube() {
   return distubeInstance;
+}
+
+function recordProfileTrack(client, queue, song) {
+  if (!song || typeof song !== 'object' || recordedProfileTracks.has(song)) return;
+
+  const requester = song.member?.user || song.user || song.playlist?.member?.user;
+  if (!requester?.id || !song.url) return;
+
+  try {
+    client.store?.recordUserTrack?.({
+      userId: requester.id,
+      guildId: queue.guildId,
+      displayName: requester.globalName || requester.username || requester.tag || 'Listener',
+      title: song.name,
+      url: song.url,
+      durationSeconds: song.duration,
+    });
+    recordedProfileTracks.add(song);
+  } catch (error) {
+    console.error('Profile track metric failed:', error.message);
+  }
 }
 
 export async function initMusicPlayer(client) {
@@ -78,21 +100,7 @@ export async function initMusicPlayer(client) {
   // Event playSong (ketika sebuah lagu mulai dimainkan)
   distube.on('playSong', async (queue, song) => {
     client.store?.recordMetric(queue.guildId, 'plays');
-    const requester = song.user;
-    if (requester?.id && song.url) {
-      try {
-        client.store?.recordUserTrack?.({
-          userId: requester.id,
-          guildId: queue.guildId,
-          displayName: requester.globalName || requester.username || requester.tag || 'Listener',
-          title: song.name,
-          url: song.url,
-          durationSeconds: song.duration,
-        });
-      } catch (error) {
-        console.error('Profile track metric failed:', error.message);
-      }
-    }
+    recordProfileTrack(client, queue, song);
     if (!queue.textChannel) return;
 
     try {
@@ -111,6 +119,7 @@ export async function initMusicPlayer(client) {
 
   // Event addSong (ketika lagu tunggal ditambahkan ke antrean)
   distube.on('addSong', (queue, song) => {
+    recordProfileTrack(client, queue, song);
     if (!queue.textChannel) return;
 
     const embed = new EmbedBuilder()
@@ -131,6 +140,9 @@ export async function initMusicPlayer(client) {
 
   // Event addList (ketika playlist YouTube ditambahkan ke antrean)
   distube.on('addList', (queue, playlist) => {
+    for (const song of playlist.songs || []) {
+      recordProfileTrack(client, queue, song);
+    }
     if (!queue.textChannel) return;
 
     const embed = new EmbedBuilder()
