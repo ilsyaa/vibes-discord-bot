@@ -98,10 +98,14 @@ export const playCommand = {
   },
 };
 function applyGuildSettings(distube, guildId, client) {
-  const settings = client.store?.getGuildSettings?.(guildId);
-  const queue = distube.getQueue(guildId);
-  if (!settings || !queue || typeof queue.setVolume !== 'function') return;
-  queue.setVolume(settings.defaultVolume);
+  try {
+    const settings = client.store?.ensureGuildSettings?.(guildId);
+    const queue = distube.getQueue(guildId);
+    if (!settings || !queue || typeof queue.setVolume !== 'function') return;
+    queue.setVolume(settings.defaultVolume);
+  } catch (error) {
+    console.error('Guild music settings failed:', error.message);
+  }
 }
 function isMusicChannelAllowed(guildId, channelId, client) {
   const settings = client.store?.getGuildSettings?.(guildId);
@@ -440,13 +444,13 @@ export const shuffleCommand = {
 export const volumeCommand = {
   data: new SlashCommandBuilder()
     .setName('volume')
-    .setDescription('Atur volume pemutaran musik (1 - 100%)')
+    .setDescription('Atur volume pemutaran musik (0 - 100%)')
     .addIntegerOption((opt) =>
       opt
         .setName('percent')
-        .setDescription('Tingkat volume dalam persen (1 - 100)')
+        .setDescription('Tingkat volume dalam persen (0 - 100)')
         .setRequired(true)
-        .setMinValue(1)
+        .setMinValue(0)
         .setMaxValue(100),
     ),
   aliases: ['vol', 'v'],
@@ -471,8 +475,8 @@ export const volumeCommand = {
     if (!queue) return message.reply('❌ Tidak ada musik yang sedang diputar!');
 
     const volume = parseInt(args[0], 10);
-    if (isNaN(volume) || volume < 1 || volume > 100) {
-      return message.reply('❌ Masukkan angka volume antara 1 sampai 100! Contoh: `!volume 80`');
+    if (isNaN(volume) || volume < 0 || volume > 100) {
+      return message.reply('❌ Masukkan angka volume antara 0 sampai 100! Contoh: `!volume 80`');
     }
 
     queue.setVolume(volume);

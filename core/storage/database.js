@@ -7,7 +7,7 @@ import { migrations } from './migrations.js';
 const metricColumns = new Set(['plays', 'skips', 'failures', 'commands', 'active_minutes']);
 const userMetricColumns = new Set(['commands', 'plays', 'active_minutes']);
 
-export function openStore(databasePath) {
+export function openStore(databasePath, { defaultVolume = 50 } = {}) {
   if (databasePath !== ':memory:') {
     fs.mkdirSync(path.dirname(databasePath), { recursive: true });
   }
@@ -48,19 +48,20 @@ export function openStore(databasePath) {
     }
   }
 
-  return new Store(database);
+  return new Store(database, { defaultVolume });
 }
 
 export class Store {
-  constructor(database) {
+  constructor(database, { defaultVolume = 50 } = {}) {
     this.database = database;
+    this.defaultVolume = defaultVolume;
   }
 
   ensureGuildSettings(guildId) {
     if (!guildId) throw new TypeError('guildId is required');
     this.database
-      .prepare('INSERT OR IGNORE INTO guild_settings (guild_id) VALUES (?)')
-      .run(guildId);
+      .prepare('INSERT OR IGNORE INTO guild_settings (guild_id, default_volume) VALUES (?, ?)')
+      .run(guildId, this.defaultVolume);
     return this.getGuildSettings(guildId);
   }
 
@@ -74,19 +75,18 @@ export class Store {
   }
 
   updateGuildSettings(guildId, patch, actorId = null) {
-    const current = this.ensureGuildSettings(guildId);
-    const next = {
-      ...current,
-      ...patch,
-      defaultVolume: patch.defaultVolume ?? current.defaultVolume,
-      autoplay: patch.autoplay ?? current.autoplay,
-      featureFlags: patch.featureFlags ?? current.featureFlags,
-    };
+    return this.withTransaction(() => {
+      const current = this.ensureGuildSettings(guildId);
+      const next = {
+        ...current,
+        ...patch,
+        defaultVolume: patch.defaultVolume ?? current.defaultVolume,
+        autoplay: patch.autoplay ?? current.autoplay,
+        featureFlags: patch.featureFlags ?? current.featureFlags,
+      };
 
-    validateSettings(next);
-    const featureFlagsJson = JSON.stringify(next.featureFlags);
-
-    this.withTransaction(() => {
+      validateSettings(next);
+      const featureFlagsJson = JSON.stringify(next.featureFlags);
       this.database
         .prepare(`
           UPDATE guild_settings
@@ -113,9 +113,8 @@ export class Store {
       this.appendAudit(guildId, actorId, 'guild_settings.updated', guildId, {
         fields: Object.keys(patch),
       });
+      return this.getGuildSettings(guildId);
     });
-
-    return this.getGuildSettings(guildId);
   }
 
   recordMetric(guildId, metric, amount = 1) {
@@ -329,8 +328,8 @@ export class Store {
     this.database
       .prepare(`
         INSERT INTO dashboard_sessions
-          (session_hash, user_id, user_json, guilds_json, csrf_token, expires_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+          (session_hash, user_id, user_json, guilds_json, csrf_token, expires_at, access_token_encrypted)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         session.sessionHash,
@@ -339,6 +338,7 @@ export class Store {
         JSON.stringify(session.guilds),
         session.csrfToken,
         session.expiresAt,
+        session.accessTokenEncrypted,
       );
   }
 
@@ -363,6 +363,7 @@ export class Store {
       guilds: parseJson(row.guilds_json, []),
       csrfToken: row.csrf_token,
       expiresAt: row.expires_at,
+      accessTokenEncrypted: row.access_token_encrypted,
     };
   }
 

@@ -106,4 +106,12 @@ export const migrations = [
         ON user_track_stats (user_id, plays DESC, last_played_at DESC);
     `,
   },
+  {
+    version: 4,
+    name: 'dashboard-session-access-token',
+    sql: `
+      ALTER TABLE dashboard_sessions
+        ADD COLUMN access_token_encrypted TEXT;
+    `,
+  },
 ];

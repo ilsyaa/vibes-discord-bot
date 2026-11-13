@@ -6,8 +6,7 @@ let errorLogStream = null;
 let currentLogFilePath = null;
 
 /**
- * Inisialisasi file error log untuk sesi eksekusi saat ini.
- * Format: logs/errors-YYYY-MM-DD-HH-mm-ss.log dan symlink / copy ke logs/latest-error.log
+ * Initializes one timestamped error log for the current process session.
  */
 export function initLogger() {
   const logsDir = path.resolve('logs');
@@ -22,25 +21,19 @@ export function initLogger() {
   currentLogFilePath = path.join(logsDir, `errors-${timestamp}.log`);
   errorLogStream = fs.createWriteStream(currentLogFilePath, { flags: 'a' });
 
-  // Tulis header session
   const header = `=== SESSION ERROR LOG STARTED AT ${now.toISOString()} ===\n\n`;
   errorLogStream.write(header);
 
-  // Hook console.error agar tetap tampil di terminal DAN tercatat ke file log sesi
   const originalConsoleError = console.error;
   console.error = (...args) => {
-    // 1. Tampilkan tetap di terminal
-    originalConsoleError(...args);
-
-    // 2. Format & tulis hanya ke error log
+    const message = redactMessage(util.format(...args));
+    originalConsoleError(message);
     if (errorLogStream) {
       const time = new Date().toISOString();
-      const message = util.format(...args);
       errorLogStream.write(`[${time}] [ERROR] ${message}\n`);
     }
   };
 
-  // Pastikan stream ditutup rapi saat exit
   process.on('exit', () => {
     if (errorLogStream) {
       errorLogStream.write(`\n=== SESSION CLOSED AT ${new Date().toISOString()} ===\n`);
@@ -49,6 +42,12 @@ export function initLogger() {
   });
 
   return currentLogFilePath;
+}
+
+function redactMessage(message) {
+  return message
+    .replace(/("(?:access_token|refresh_token|client_secret|authorization|cookie|token|secret|code)"\s*:\s*)"[^"]*"/giu, '$1"[REDACTED]"')
+    .replace(/((?:authorization|cookie|token|secret|code)(?:=|:\s+))([^\s,;&]+)/giu, '$1[REDACTED]');
 }
 
 export function logError(error, context = '') {

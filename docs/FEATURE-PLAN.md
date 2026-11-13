@@ -1,6 +1,6 @@
 # Vibes Discord feature plan
 
-Status: control-plane slice implemented in this branch; database, dashboard, and richer music UX are planned product work.
+Status: control-plane, persistence, profile cards, and the initial dashboard slice are implemented; richer music UX remains planned.
 
 ## Product direction
 
@@ -29,9 +29,10 @@ Discord supports slash commands, buttons, select menus, modals, autocomplete, ep
 - `features/music/` owns DisTube queues, now-playing embeds, and playback buttons.
 - `features/general/` owns utility commands and help.
 - Music state is currently process-local.
-- The repository now has file-backed persistence, aggregate metrics, an opt-in dashboard, OAuth session storage, and a dependency-free dashboard UI; test coverage is still being expanded.
+- The repository has file-backed persistence, aggregate metrics, an opt-in dashboard, OAuth session storage, and a dependency-free dashboard UI.
+- `test/contract.test.js` covers storage migrations, profile aggregation, PNG rendering, and OAuth browser binding.
 - `core/deploy.js` separately registers slash commands globally or to `GUILD_ID`.
-- The deployed runtime is Node 26, which provides the release-candidate `node:sqlite` `Database` API; the minimum engine is now a persistence contract.
+- The deployed runtime is Node 26, which provides the release-candidate `node:sqlite` `Database` API; this minimum is a persistence contract.
 
 ## Phased execution plan
 
@@ -76,9 +77,9 @@ Discord supports slash commands, buttons, select menus, modals, autocomplete, ep
 
 ### P3 — Dashboard
 
-- [x] F-020 Add a dependency-free Node HTTP dashboard server with static assets and a health endpoint.
+- [x] F-020 Add a dependency-free Node HTTP dashboard server with an embedded UI and a health endpoint.
 - [x] F-021 Add Discord OAuth2 authorization-code flow with state, PKCE, exact redirect URI, and server-side client secret.
-- [x] F-022 Add server-side sessions with HttpOnly/Secure/SameSite cookies and HMAC-hashed session records.
+- [x] F-022 Add server-side sessions with HttpOnly/Secure/SameSite cookies, HMAC-hashed session records, and encrypted OAuth access tokens for permission revalidation.
 - [x] F-023 Add guild authorization: user must manage the guild and the bot must be present before reads/writes.
 - [ ] F-024 Add dashboard pages for Overview, Music Settings, Controls, Analytics, Audit Log, and Integrations.
 - [x] F-025 Add settings REST endpoints with schema validation, CSRF protection, audit events, and transactional writes.
@@ -86,8 +87,8 @@ Discord supports slash commands, buttons, select menus, modals, autocomplete, ep
 
 ### P4 — Operations and quality
 
-- [ ] F-027 Add contract tests for migrations, settings authorization, metrics rollups, and session expiry.
-- [ ] F-028 Add dashboard API smoke tests with a fake Discord gateway boundary.
+- [x] F-027 Add contract tests for migrations, settings authorization, metrics rollups, and session expiry.
+- [x] F-028 Add dashboard API smoke tests with a fake Discord gateway boundary.
 - [ ] F-029 Add structured operational logs without tokens, cookies, raw queries, or OAuth codes.
 - [ ] F-030 Add provider health checks, bounded retries, circuit breakers, and user-visible remediation.
 - [ ] F-031 Add localization and per-guild timezone/locale support.
@@ -112,7 +113,7 @@ Discord supports slash commands, buttons, select menus, modals, autocomplete, ep
 
 ### Dashboard
 
-- `dashboard/server.js`: dependency-free Node HTTP server, health endpoint, static control center, OAuth2 login, PKCE, HMAC-hashed sessions, guild authorization, settings/metrics/audit APIs, CSRF checks, and transactional writes.
+- `dashboard/server.js`: dependency-free Node HTTP server, health endpoint, embedded control center, OAuth2 login, PKCE, HMAC-hashed sessions, guild authorization, settings/metrics/audit APIs, CSRF checks, and transactional writes.
 - Dashboard is opt-in through `DASHBOARD_ENABLED`; bot-only mode remains the default.
 
 ### Integration map
@@ -140,7 +141,7 @@ The first database migration set should keep domain boundaries explicit:
 - `user_activity_daily(user_id, guild_id, day, commands, plays, active_minutes, last_seen_at)`
 - `user_track_stats(user_id, guild_id, track_key, title, plays, duration_seconds, last_played_at)`
 - `audit_log(id, guild_id, actor_id, action, target, metadata_json, created_at)`
-- `dashboard_sessions(id, user_id, session_hash, expires_at, created_at, last_seen_at)`
+- `dashboard_sessions(user_id, session_hash, access_token_encrypted, expires_at, created_at, last_seen_at)`
 - `oauth_states(state_hash, code_verifier, expires_at, created_at)`
 
 Privacy default: do not store raw search strings, message content, cookies, bot tokens, OAuth codes, or full media URLs when an identifier is sufficient. Add retention and deletion behavior before exposing historical analytics.
@@ -151,7 +152,7 @@ Implemented initial shape:
 
 - `dashboard/server.js`: dependency-free Node HTTP server and lifecycle.
 - OAuth2 authorization-code flow with state, PKCE, issuer validation, token exchange, and identity/guild discovery.
-- HMAC-hashed sessions with HttpOnly/Secure/SameSite cookies.
+- HMAC-hashed sessions with HttpOnly/Secure/SameSite cookies and encrypted server-side Discord access tokens for permission revalidation.
 - Guild authorization based on Discord `Manage Guild`/`Administrator` claims plus bot presence.
 - Settings, metrics, audit, and health API routes.
 - `dashboard/public` is reserved for future split assets; the current UI is embedded and dependency-free.
@@ -187,7 +188,7 @@ Dashboard write invariant: every setting write passes authenticated user, guild-
 
 ## Risks and decisions
 
-- **Node version:** use built-in `node:sqlite` on Node 26 and declare the minimum engine before persistence lands. Do not add a native SQLite package without evidence that built-in SQLite is insufficient.
+- **Node version:** use built-in `node:sqlite` on Node 26. Do not add a native SQLite package without evidence that built-in SQLite is insufficient.
 - **Concurrency:** Node's synchronous `Database` API is synchronous; keep transactions short and move rollups/backup work off command handlers.
 - **OAuth security:** use server-side code exchange, state, PKCE, exact redirect URIs, secure cookies, CSRF protection, and short-lived sessions.
 - **Authorization drift:** re-check guild permissions at API write time; cached dashboard guild lists are not authority.

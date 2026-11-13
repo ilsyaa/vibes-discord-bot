@@ -18,17 +18,14 @@ export default {
   name: 'Music',
   description: 'Pemutar musik YouTube performa tinggi berbasis Stream Mode FFmpeg',
 
-  // Hook inisialisasi engine DisTube saat bot start
   async init(client) {
     await initMusicPlayer(client);
   },
 
-  // Hook penanganan interaksi tombol (UI Buttons)
   async onInteraction(interaction) {
     return handleMusicButton(interaction);
   },
 
-  // Daftar perintah
   commands: [
     playCommand,
     skipCommand,

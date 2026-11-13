@@ -10,11 +10,9 @@ import { initLogger } from './logger.js';
 import { openStore } from './storage/database.js';
 import { startDashboard } from '../dashboard/server.js';
 
-// Inisialisasi logger file per session (hanya mencatat error)
 const logFile = initLogger();
 console.log(`📁 Error log session: ${logFile}`);
 
-// Setup client dengan intents lengkap untuk slash, prefix, dan voice
 export const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -24,14 +22,12 @@ export const client = new Client({
   ],
 });
 
-// Registry Command, Aliases, dan Interaction Handlers
 export let store = null;
 client.commands = new Collection();
 client.aliases = new Collection();
 client.interactionHandlers = [];
 client.store = null;
 
-// Event Ready
 client.once('ready', () => {
   console.log(`🤖 Logged in sebagai ${client.user.tag}!`);
   console.log(`📡 Prefix teks: ${config.prefix} (Contoh: ${config.prefix}play atau ${config.prefix}help)`);
@@ -48,9 +44,7 @@ client.once('ready', () => {
   });
 });
 
-// Event Interaction (Slash Commands, Buttons, Select Menus)
 client.on('interactionCreate', async (interaction) => {
-  // 1. Delegasi ke feature interaction handlers (misal tombol musik)
   for (const handler of client.interactionHandlers) {
     try {
       const handled = await handler(interaction, client);
@@ -60,7 +54,6 @@ client.on('interactionCreate', async (interaction) => {
     }
   }
 
-  // 2. Chat Input / Slash Command handling
   if (!interaction.isChatInputCommand()) return;
 
   const command = client.commands.get(interaction.commandName);
@@ -84,7 +77,6 @@ client.on('interactionCreate', async (interaction) => {
   }
 });
 
-// Event Message (Prefix Commands)
 client.on('messageCreate', async (message) => {
   if (message.author.bot || !message.guild) return;
   if (!message.content.startsWith(config.prefix)) return;
@@ -106,49 +98,79 @@ client.on('messageCreate', async (message) => {
   }
 });
 
-// Global Process Handlers
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+let dashboardServer = null;
+let shutdownPromise = null;
+
+process.on('unhandledRejection', (reason) => {
+  void handleFatalError(reason);
 });
 
-process.on('uncaughtException', (err) => {
-  console.error('Uncaught Exception:', err);
+process.on('uncaughtException', (error) => {
+  void handleFatalError(error);
 });
 
-function recordCommandActivity(user, guildId) {
-  if (!guildId || !user?.id) return;
-  store?.recordMetric(guildId, 'commands');
-  store?.recordUserActivity(
-    user.id,
-    guildId,
-    user.globalName || user.username || user.tag || 'Listener',
-    'commands',
-  );
+async function handleFatalError(error) {
+  console.error('Fatal process error:', error);
+  try {
+    await shutdown();
+  } finally {
+    process.exitCode = 1;
+    process.exit();
+  }
 }
 
-// Initialize & Boot
+async function shutdown() {
+  if (shutdownPromise) return shutdownPromise;
+  shutdownPromise = (async () => {
+    await closeServer(dashboardServer);
+    dashboardServer = null;
+    store?.close();
+    store = null;
+    client.store = null;
+    client.destroy();
+  })();
+  return shutdownPromise;
+}
+
+function recordCommandActivity(user, guildId) {
+  if (!guildId || !user?.id || !store) return;
+
+  try {
+    store.withTransaction(() => {
+      store.recordMetric(guildId, 'commands');
+      store.recordUserActivity(
+        user.id,
+        guildId,
+        user.globalName || user.username || user.tag || 'Listener',
+        'commands',
+      );
+    });
+  } catch (error) {
+    console.error('Command activity metric failed:', error.message);
+  }
+}
+
 export async function start() {
-  store = openStore(config.databasePath);
+  store = openStore(config.databasePath, { defaultVolume: config.defaultVolume });
   client.store = store;
 
-  const dashboardServer = config.dashboardEnabled
+  dashboardServer = config.dashboardEnabled
     ? await startDashboard({ client, store, config })
     : null;
 
-  const shutdown = async () => {
-    await closeServer(dashboardServer);
-    store?.close();
-    client.destroy();
-    process.exit(0);
+  const handleSignal = async () => {
+    await shutdown();
+    process.exitCode = 0;
   };
-  process.once('SIGINT', shutdown);
-  process.once('SIGTERM', shutdown);
+  process.once('SIGINT', handleSignal);
+  process.once('SIGTERM', handleSignal);
 
   await loadFeatures(client);
 
   if (!config.token) {
     console.warn('⚠️ DISCORD_TOKEN belum diatur di file .env!');
     console.warn('Isi DISCORD_TOKEN di .env untuk menghubungkan bot ke Discord.');
+    await shutdown();
     return;
   }
 

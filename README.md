@@ -14,26 +14,35 @@ Struktur folder:
 
 ```text
 vibes-discord/
-├── index.js                  # Entry point utama bot
-├── core/                     # Fondasi inti bot (tidak perlu sering diubah)
-│   ├── client.js             # Setup Discord Client, event bus & dispatcher
-│   ├── loader.js             # Auto-discovery loader untuk seluruh fitur
-│   ├── deploy.js             # Deployer Slash Commands otomatis ke Discord API
-│   └── config.js             # Konfigurasi environment (.env)
-├── features/                 # FITUR TERISOLASI (Modular Feature Bags)
-│   ├── general/              # Modul fitur umum (ping, help, dll.)
-│   │   ├── index.js          # Export manifest fitur General
-│   │   └── commands.js       # Command definition & logic
-│   └── music/                # Modul fitur musik YouTube Stream Mode
-│       ├── index.js          # Export manifest fitur Music
-│       ├── player.js         # Setup DisTube engine & YouTube streaming
-│       ├── ui.js             # Komponen Embed & Tombol Pemutar Interaktif
-│       ├── interactions.js   # Event handler tombol musik
-│       └── commands.js       # Commands (/play, /skip, /prev, /queue, dll.)
+├── index.js
+├── core/
+│   ├── client.js
+│   ├── loader.js
+│   ├── deploy.js
+│   ├── config.js
+│   ├── logger.js
+│   └── storage/
+│       ├── database.js
+│       └── migrations.js
+├── features/
+│   ├── general/
+│   │   ├── commands.js
+│   │   ├── profile-card.js
+│   │   └── index.js
+│   └── music/
+│       ├── commands.js
+│       ├── interactions.js
+│       ├── player.js
+│       ├── ui.js
+│       └── index.js
+├── dashboard/
+│   └── server.js
+├── docs/
+│   └── FEATURE-PLAN.md
 ├── .env.example
 ├── cookies.example.json
 ├── package.json
-└── README.md
+└── package-lock.json
 ```
 
 ---
@@ -78,26 +87,40 @@ Data disimpan sebagai aggregate activity. URL media tidak disimpan; track identi
 | :--- | :--- | :--- |
 | `/play <query>` | `!play <query>` atau `!p <query>` | Putar link video, playlist, atau kata kunci judul YouTube |
 | `/skip` | `!skip`, `!next`, `!s` | Lewati lagu yang sedang diputar |
-| `/prev` | `!prev`, `!previous` | Putar kembali lagu sebelumnya |
-| `/queue` | `!queue`, `!q`, `!playlist` | Lihat daftar antrean musik |
+| `/prev` | `!prev`, `!previous`, `!back` | Putar kembali lagu sebelumnya |
+| `/queue` | `!queue`, `!q`, `!playlist`, `!list` | Lihat daftar antrean musik |
 | `/pause` | `!pause` | Jeda pemutaran lagu |
 | `/resume` | `!resume`, `!unpause` | Lanjutkan pemutaran lagu |
 | `/stop` | `!stop`, `!leave` | Hentikan pemutaran dan kosongkan antrean |
-| `/loop [mode]` | `!loop` | Atur perulangan (Lagu / Playlist / Off) |
+| `/loop [mode]` | `!loop`, `!repeat` | Atur perulangan (Lagu / Playlist / Off) |
 | `/shuffle` | `!shuffle`, `!mix` | Acak urutan playlist |
-| `/volume <1-100>` | `!volume <1-100>`, `!vol` | Atur intensitas suara |
-| `/nowplaying` | `!nowplaying`, `!np` | Lihat detail lagu yang sedang berjalan |
-| `/diagnose` | `!diagnose`, `!diag` | Cek voice channel, permission, queue, dan koneksi bot |
+| `/volume <0-100>` | `!volume <0-100>`, `!vol`, `!v` | Atur intensitas suara; `0` untuk mute |
+| `/nowplaying` | `!nowplaying`, `!np`, `!current` | Lihat detail lagu yang sedang berjalan |
+| `/diagnose` | `!diagnose`, `!diag`, `!health` | Cek voice channel, permission, queue, dan koneksi bot |
 | `/stats` | `!stats`, `!status` | Lihat statistik operasional runtime bot |
 | `/profile` | `!profile`, `!me` | Tampilkan kartu profil musik personal |
-| `/ping` | `!ping` | Cek latensi bot dan koneksi Discord Gateway |
-| `/help` | `!help`, `!h` | Tampilkan menu bantuan |
+| `/ping` | `!ping`, `!pings`, `!latency` | Cek latensi bot dan koneksi Discord Gateway |
+| `/help` | `!help`, `!h`, `!bantuan` | Tampilkan menu bantuan |
 
 ---
 
 ## 🚀 Panduan Menjalankan
+### 1. Prasyarat
 
-### 1. Konfigurasi Token di `.env`
+- Node.js `>=26.0.0`.
+- A system `ffmpeg` executable available on `PATH`.
+
+Install locked dependencies:
+
+```bash
+npm ci
+```
+
+The profile card renderer includes its native canvas package through npm. Do not copy
+live YouTube cookies into the repository; keep them in the ignored `cookies.json`.
+
+
+### 2. Konfigurasi Token di `.env`
 Salin template `.env.example` ke `.env`:
 ```bash
 cp .env.example .env
@@ -122,13 +145,13 @@ DASHBOARD_SESSION_SECRET=replace-with-a-long-random-secret
 
 > **Penting**: Di **Discord Developer Portal -> Bot -> Privileged Gateway Intents**, pastikan opsi **Message Content Intent** sudah diaktifkan agar prefix command `!` dapat dibaca.
 
-### 2. Deploy Slash Commands
-Jalankan perintah ini sekali untuk mendaftarkan semua slash commands dari semua modul fitur ke Discord API:
+### 3. Deploy Slash Commands
+Jalankan perintah ini setelah setup awal dan setiap kali slash command berubah:
 ```bash
 npm run deploy
 ```
 
-### 3. Dashboard (opsional)
+### 4. Dashboard (opsional)
 
 Dashboard memakai Discord OAuth2 authorization-code flow dan hanya menampilkan guild yang:
 
@@ -141,8 +164,9 @@ Dashboard memakai Discord OAuth2 authorization-code flow dan hanya menampilkan g
 4. Jalankan bot; buka `DASHBOARD_PUBLIC_URL`.
 
 Dashboard menyediakan health check, aggregate metrics, audit log, dan pengaturan volume/channel musik. Bot tetap bisa dijalankan tanpa dashboard dengan `DASHBOARD_ENABLED=false`.
+Jika dashboard dibuka melalui `DASHBOARD_PUBLIC_URL`, gunakan reverse proxy TLS yang meneruskan ke `DASHBOARD_HOST:DASHBOARD_PORT`. Default listener hanya loopback.
 
-### 4. Jalankan Bot
+### 5. Jalankan Bot
 
 Mode produksi:
 ```bash

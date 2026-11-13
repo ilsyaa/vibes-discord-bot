@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 
 const DISCORD_API = 'https://discord.com/api/v10';
 const SESSION_COOKIE = 'vibes_session';
+const OAUTH_COOKIE = 'vibes_oauth_state';
 const MANAGE_GUILD = 1n << 5n;
 const ADMINISTRATOR = 1n << 3n;
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
@@ -50,7 +51,7 @@ async function routeRequest(request, response, context) {
   }
 
   if (url.pathname === '/auth/login' && request.method === 'GET') {
-    return startOAuth(response, context);
+    return startOAuth(request, response, context);
   }
 
   if (url.pathname === '/auth/callback' && request.method === 'GET') {
@@ -92,7 +93,7 @@ async function routeRequest(request, response, context) {
   sendJson(response, 404, { error: 'not_found', message: 'Route not found.' });
 }
 
-function startOAuth(response, { config, store }) {
+function startOAuth(request, response, { config, store }) {
   if (!isConfigured(config)) {
     return sendJson(response, 503, {
       error: 'dashboard_not_configured',
@@ -102,8 +103,9 @@ function startOAuth(response, { config, store }) {
 
   const state = randomToken(32);
   const verifier = randomToken(48);
+  const stateHash = hashToken(state, config.dashboardSessionSecret);
   const expiresAt = new Date(Date.now() + OAUTH_STATE_TTL_MS).toISOString();
-  store.createOAuthState(hashToken(state, config.dashboardSessionSecret), verifier, expiresAt);
+  store.createOAuthState(stateHash, verifier, expiresAt);
 
   const authorizeUrl = new URL('https://discord.com/oauth2/authorize');
   authorizeUrl.searchParams.set('response_type', 'code');
@@ -115,7 +117,10 @@ function startOAuth(response, { config, store }) {
   authorizeUrl.searchParams.set('code_challenge', pkceChallenge(verifier));
   authorizeUrl.searchParams.set('prompt', 'consent');
 
-  response.writeHead(302, { Location: authorizeUrl.toString() });
+  response.writeHead(302, {
+    Location: authorizeUrl.toString(),
+    'Set-Cookie': oauthStateCookie(stateHash, config),
+  });
   return response.end();
 }
 
@@ -128,6 +133,10 @@ async function finishOAuth(url, request, response, { client, store, config }) {
   const state = url.searchParams.get('state');
   const code = url.searchParams.get('code');
   if (!state || !code) return sendJson(response, 400, { error: 'oauth_callback_invalid' });
+  const cookies = parseCookies(request.headers.cookie || '');
+  if (cookies[OAUTH_COOKIE] !== hashToken(state, config.dashboardSessionSecret)) {
+    return sendJson(response, 400, { error: 'oauth_state_browser_mismatch' });
+  }
 
   const oauthState = store.consumeOAuthState(hashToken(state, config.dashboardSessionSecret));
   if (!oauthState) return sendJson(response, 400, { error: 'oauth_state_invalid_or_expired' });
@@ -156,12 +165,13 @@ async function finishOAuth(url, request, response, { client, store, config }) {
     user,
     guilds: manageableGuilds,
     csrfToken,
+    accessTokenEncrypted: encryptSecret(token.access_token, config.dashboardSessionSecret),
     expiresAt: new Date(Date.now() + SESSION_TTL_MS).toISOString(),
   });
 
   response.writeHead(302, {
     Location: '/',
-    'Set-Cookie': sessionCookie(sessionToken, config),
+    'Set-Cookie': [sessionCookie(sessionToken, config), clearOAuthStateCookie(config)],
   });
   return response.end();
 }
@@ -197,7 +207,7 @@ async function discordGet(pathname, accessToken) {
 }
 
 async function handleGuildSettings(request, response, guildId, context) {
-  const authorization = authorizeGuild(request, response, guildId, context);
+  const authorization = await authorizeGuild(request, response, guildId, context);
   if (!authorization) return;
 
   if (request.method === 'GET') {
@@ -225,16 +235,29 @@ async function handleGuildSettings(request, response, guildId, context) {
   return sendJson(response, 200, settings);
 }
 
-function handleGuildRead(request, response, guildId, context, read) {
-  if (!authorizeGuild(request, response, guildId, context)) return;
+async function handleGuildRead(request, response, guildId, context, read) {
+  if (!(await authorizeGuild(request, response, guildId, context))) return;
   return sendJson(response, 200, read());
 }
 
-function authorizeGuild(request, response, guildId, { client, store, config }) {
+async function authorizeGuild(request, response, guildId, { client, store, config }) {
   const session = requireSession(request, response, store, config);
   if (!session) return null;
-  const guild = session.guilds.find((entry) => entry.id === guildId);
-  if (!guild) {
+  if (!session.accessTokenEncrypted) {
+    sendJson(response, 401, { error: 'reauth_required', message: 'Sign in again to refresh Discord permissions.' });
+    return null;
+  }
+
+  let guilds;
+  try {
+    guilds = await discordGet('/users/@me/guilds', decryptSecret(session.accessTokenEncrypted, config.dashboardSessionSecret));
+  } catch {
+    sendJson(response, 401, { error: 'reauth_required', message: 'Discord authorization expired. Sign in again.' });
+    return null;
+  }
+
+  const guild = guilds.find((entry) => entry.id === guildId);
+  if (!guild || !hasManagePermission(guild.permissions)) {
     sendJson(response, 403, { error: 'guild_forbidden', message: 'You cannot manage this guild.' });
     return null;
   }
@@ -300,7 +323,12 @@ function hasManagePermission(permissionValue) {
 
 function sameOrigin(request, config) {
   const origin = request.headers.origin;
-  return !origin || origin === config.dashboardPublicUrl;
+  if (!origin) return true;
+  try {
+    return new URL(origin).origin === new URL(config.dashboardPublicUrl).origin;
+  } catch {
+    return false;
+  }
 }
 
 function isConfigured(config) {
@@ -335,6 +363,15 @@ function clearSessionCookie(config) {
   const secure = config.dashboardPublicUrl.startsWith('https://') ? '; Secure' : '';
   return `${SESSION_COOKIE}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0${secure}`;
 }
+function oauthStateCookie(stateHash, config) {
+  const secure = config.dashboardPublicUrl.startsWith('https://') ? '; Secure' : '';
+  return `${OAUTH_COOKIE}=${encodeURIComponent(stateHash)}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${OAUTH_STATE_TTL_MS / 1000}${secure}`;
+}
+
+function clearOAuthStateCookie(config) {
+  const secure = config.dashboardPublicUrl.startsWith('https://') ? '; Secure' : '';
+  return `${OAUTH_COOKIE}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0${secure}`;
+}
 
 function randomToken(bytes) {
   return crypto.randomBytes(bytes).toString('base64url');
@@ -344,6 +381,25 @@ function hashToken(value, secret = 'vibes-dashboard') {
   return crypto.createHmac('sha256', secret).update(value).digest('hex');
 }
 
+function encryptSecret(value, secret) {
+  const key = crypto.createHash('sha256').update(`vibes-dashboard-token:${secret}`).digest();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const ciphertext = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
+  return [iv, cipher.getAuthTag(), ciphertext].map((part) => part.toString('base64url')).join('.');
+}
+
+function decryptSecret(payload, secret) {
+  const [ivValue, tagValue, ciphertextValue] = String(payload).split('.');
+  if (!ivValue || !tagValue || !ciphertextValue) throw new Error('Invalid encrypted secret');
+  const key = crypto.createHash('sha256').update(`vibes-dashboard-token:${secret}`).digest();
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(ivValue, 'base64url'));
+  decipher.setAuthTag(Buffer.from(tagValue, 'base64url'));
+  return Buffer.concat([
+    decipher.update(Buffer.from(ciphertextValue, 'base64url')),
+    decipher.final(),
+  ]).toString('utf8');
+}
 function pkceChallenge(verifier) {
   return crypto.createHash('sha256').update(verifier).digest('base64url');
 }

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { DisTube } from 'distube';
 import { YouTubePlugin } from '@distube/youtube';
 import { createPoTokenProvider, Client } from '@distube/ytdl-core';
@@ -35,9 +36,8 @@ function recordProfileTrack(client, queue, song) {
 }
 
 export async function initMusicPlayer(client) {
-  // Cek apakah cookies.json tersedia untuk bypass bot detection YouTube di hosting/VPS
   let cookies;
-  const cookiePath = path.resolve('cookies.json');
+  const cookiePath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../cookies.json');
   if (fs.existsSync(cookiePath)) {
     try {
       cookies = JSON.parse(fs.readFileSync(cookiePath, 'utf8'));
@@ -47,7 +47,6 @@ export async function initMusicPlayer(client) {
     }
   }
 
-  // Inisialisasi PO Token Provider (Proof-of-Origin Token) untuk bypass blokir IP VPS/Cloud
   let poToken;
   try {
     poToken = await createPoTokenProvider();
@@ -67,7 +66,7 @@ export async function initMusicPlayer(client) {
         Client.VisionOS,
         Client.WebMusic,
       ],
-      highWaterMark: 1 << 25, // Buffer 32MB
+      highWaterMark: 1 << 25,
       quality: 'highestaudio',
       filter: 'audioonly',
       liveBuffer: 40000,
@@ -78,7 +77,7 @@ export async function initMusicPlayer(client) {
     emitNewSongOnly: true,
     emitAddSongWhenCreatingQueue: false,
     emitAddListWhenCreatingQueue: false,
-    savePreviousSongs: true, // Dukungan untuk fitur prev / previous
+    savePreviousSongs: true,
     nsfw: true,
     joinNewVoiceChannel: false,
     plugins: [youtubePlugin],
@@ -97,7 +96,6 @@ export async function initMusicPlayer(client) {
     },
   });
 
-  // Event playSong (ketika sebuah lagu mulai dimainkan)
   distube.on('playSong', async (queue, song) => {
     client.store?.recordMetric(queue.id, 'plays');
     recordProfileTrack(client, queue, song);
@@ -117,7 +115,6 @@ export async function initMusicPlayer(client) {
     }
   });
 
-  // Event addSong (ketika lagu tunggal ditambahkan ke antrean)
   distube.on('addSong', (queue, song) => {
     recordProfileTrack(client, queue, song);
     if (!queue.textChannel) return;
@@ -138,7 +135,6 @@ export async function initMusicPlayer(client) {
     queue.textChannel.send({ embeds: [embed] }).catch(() => {});
   });
 
-  // Event addList (ketika playlist YouTube ditambahkan ke antrean)
   distube.on('addList', (queue, playlist) => {
     for (const song of playlist.songs || []) {
       recordProfileTrack(client, queue, song);
@@ -161,7 +157,6 @@ export async function initMusicPlayer(client) {
     queue.textChannel.send({ embeds: [embed] }).catch(() => {});
   });
 
-  // Event finish (ketika seluruh lagu dalam playlist selesai dimainkan)
   distube.on('finish', (queue) => {
     if (!queue.textChannel) return;
     const embed = new EmbedBuilder()
@@ -172,7 +167,6 @@ export async function initMusicPlayer(client) {
     queue.textChannel.send({ embeds: [embed] }).catch(() => {});
   });
 
-  // Event empty (ketika voice channel kosong ditinggalkan user)
   distube.on('empty', (queue) => {
     if (!queue.textChannel) return;
     const embed = new EmbedBuilder()
@@ -183,7 +177,6 @@ export async function initMusicPlayer(client) {
     queue.textChannel.send({ embeds: [embed] }).catch(() => {});
   });
 
-  // Event error
   distube.on('error', (error, queue) => {
     client.store?.recordMetric(queue?.id, 'failures');
     console.error('DisTube stream error:', error);

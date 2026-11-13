@@ -10,7 +10,6 @@ export async function handleMusicButton(interaction) {
   const distube = getDisTube();
   const queue = distube?.getQueue(guildId);
 
-  // Validasi voice channel user
   const memberVoice = member.voice?.channel;
   if (!memberVoice) {
     await interaction.reply({

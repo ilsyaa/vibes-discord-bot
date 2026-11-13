@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 /**
  * Scan and load all modules under features/ directory.
@@ -10,7 +10,7 @@ import { pathToFileURL } from 'node:url';
  * - init: async function(client) => void (setup listeners, players, cron, etc)
  */
 export async function loadFeatures(client) {
-  const featuresPath = path.resolve('features');
+  const featuresPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../features');
   if (!fs.existsSync(featuresPath)) {
     return;
   }
@@ -31,17 +31,14 @@ export async function loadFeatures(client) {
 
       console.log(`📦 Memuat fitur: [${feature.name || entry.name}]`);
 
-      // 1. Initialize feature if init hook is provided
       if (typeof feature.init === 'function') {
         await feature.init(client);
       }
 
-      // 2. Register feature interaction hook (e.g. button / select menu handler)
       if (typeof feature.onInteraction === 'function') {
         client.interactionHandlers.push(feature.onInteraction);
       }
 
-      // 3. Register commands
       if (Array.isArray(feature.commands)) {
         for (const cmd of feature.commands) {
           if (!cmd.data || !cmd.data.name) continue;
