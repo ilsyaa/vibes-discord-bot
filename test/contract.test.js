@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { Readable } from 'node:stream';
 import { openStore } from '../core/storage/database.js';
 import { createDashboardServer } from '../dashboard/server.js';
 import { renderProfileCard } from '../features/general/profile-card.js';
 import { autoplayCommand } from '../features/music/commands.js';
 import { selectAutoplayRecommendation } from '../features/music/player.js';
 import { ProxyPool } from '../core/proxy-pool.js';
+import { createStreamRelay } from '../core/stream-relay.js';
 
 test('profile activity persists, ranks, and rolls back invalid settings', () => {
   const store = openStore(':memory:', { defaultVolume: 80 });
@@ -164,4 +166,18 @@ test('proxy pool applies the failure cooldown to blocked responses', async () =>
     failures: 1,
   });
   await pool.close();
+});
+
+test('stream relay serves one local URL from a fresh source stream', async () => {
+  const relay = await createStreamRelay({
+    ttlMs: 1_000,
+    createStream: async () => Readable.from(['relay-ok']),
+  });
+  try {
+    const response = await fetch(relay.register('video-source'));
+    assert.equal(response.status, 200);
+    assert.equal(await response.text(), 'relay-ok');
+  } finally {
+    await relay.close();
+  }
 });

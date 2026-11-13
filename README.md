@@ -128,7 +128,8 @@ The YouTube fetch path leases a proxy for each upstream request, rotates through
 available entries, applies a normal cooldown after use, and applies a longer
 cooldown after network/403/429/5xx failures. When a proxy file is configured, the
 bot waits for the next healthy lease instead of silently falling back to the
-server's public IP.
+server's public IP. Audio is served to FFmpeg through a loopback relay, so
+FFmpeg never bypasses the proxy pool with a direct `googlevideo.com` request.
 
 ### 2. Konfigurasi Token di `.env`
 Salin template `.env.example` ke `.env`:

@@ -7,10 +7,12 @@ import { createPoTokenProvider, Client } from '@distube/ytdl-core';
 import { EmbedBuilder } from 'discord.js';
 import { config } from '../../core/config.js';
 import { ProxyPool } from '../../core/proxy-pool.js';
+import { createStreamRelay } from '../../core/stream-relay.js';
 import { createNowPlayingEmbed, createPlayerButtons } from './ui.js';
 
 let distubeInstance = null;
 let youtubeProxyPool = null;
+let youtubeStreamRelay = null;
 let poTokenProvider = null;
 
 const recordedProfileTracks = new WeakSet();
@@ -138,12 +140,23 @@ export async function initMusicPlayer(client) {
         Client.VisionOS,
         Client.WebMusic,
       ],
-      highWaterMark: 1 << 25,
-      quality: 'highestaudio',
-      filter: 'audioonly',
-      liveBuffer: 40000,
     },
   });
+  youtubeStreamRelay = await createStreamRelay({
+    createStream: (source) =>
+      youtubePlugin.ytdl.download(source, {
+        filter: { hasAudio: true, hasVideo: false },
+        quality: 'highestaudio',
+        highWaterMark: 1 << 25,
+        liveBuffer: 40000,
+      }),
+    onError: (error) => console.warn('YouTube relay stream failed:', error.message),
+  });
+  youtubePlugin.getStreamURL = async (song) => {
+    if (!song?.url) throw new Error('YouTube song URL missing');
+    return youtubeStreamRelay.register(song.url);
+  };
+
 
   const distube = new DisTube(client, {
     emitNewSongOnly: true,
@@ -270,10 +283,15 @@ export async function initMusicPlayer(client) {
 export async function closeMusicPlayer() {
   const provider = poTokenProvider;
   const pool = youtubeProxyPool;
+  const relay = youtubeStreamRelay;
   poTokenProvider = null;
   youtubeProxyPool = null;
+  youtubeStreamRelay = null;
   distubeInstance = null;
 
+  await relay?.close?.().catch((error) => {
+    console.warn('⚠️ Gagal menutup YouTube stream relay:', error.message);
+  });
   await provider?.dispose?.().catch((error) => {
     console.warn('⚠️ Gagal menutup PO Token Provider:', error.message);
   });
