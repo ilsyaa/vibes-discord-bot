@@ -22,7 +22,7 @@ function recordProfileTrack(client, queue, song) {
   try {
     client.store?.recordUserTrack?.({
       userId: requester.id,
-      guildId: queue.guildId,
+      guildId: queue.id,
       displayName: requester.globalName || requester.username || requester.tag || 'Listener',
       title: song.name,
       url: song.url,
@@ -99,7 +99,7 @@ export async function initMusicPlayer(client) {
 
   // Event playSong (ketika sebuah lagu mulai dimainkan)
   distube.on('playSong', async (queue, song) => {
-    client.store?.recordMetric(queue.guildId, 'plays');
+    client.store?.recordMetric(queue.id, 'plays');
     recordProfileTrack(client, queue, song);
     if (!queue.textChannel) return;
 
@@ -185,7 +185,7 @@ export async function initMusicPlayer(client) {
 
   // Event error
   distube.on('error', (error, queue) => {
-    client.store?.recordMetric(queue?.guildId, 'failures');
+    client.store?.recordMetric(queue?.id, 'failures');
     console.error('DisTube stream error:', error);
     if (queue && queue.textChannel) {
       const embed = new EmbedBuilder()
