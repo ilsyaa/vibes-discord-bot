@@ -11,6 +11,7 @@ import {
   loopCommand,
   shuffleCommand,
   volumeCommand,
+  nowPlayingCommand,
   autoplayCommand,
   diagnoseCommand,
 } from './commands.js';
@@ -37,6 +38,7 @@ export default {
     loopCommand,
     shuffleCommand,
     volumeCommand,
+    nowPlayingCommand,
     autoplayCommand,
     diagnoseCommand,
   ],
