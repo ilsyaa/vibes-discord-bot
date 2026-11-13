@@ -115,6 +115,23 @@ export async function startPoTokenProvider(
   return null;
 }
 
+export async function warmYoutubePipeline(
+  youtubePlugin,
+  { ids = ['jNQXAC9IVRw', 'dQw4w9WgXcQ'] } = {},
+) {
+  for (const id of ids) {
+    const started = Date.now();
+    try {
+      await youtubePlugin.ytdl.getInfo(`https://www.youtube.com/watch?v=${id}`);
+      console.log(`🔥 Warm-up YouTube siap dalam ${Date.now() - started} ms.`);
+      return true;
+    } catch (error) {
+      console.warn('⚠️ Warm-up YouTube gagal:', error.message);
+    }
+  }
+  return false;
+}
+
 export async function initMusicPlayer(client) {
   let cookies;
   const cookiePath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../cookies.json');
@@ -325,6 +342,7 @@ export async function initMusicPlayer(client) {
   });
 
   distubeInstance = distube;
+  void warmYoutubePipeline(youtubePlugin);
   return distube;
 }
 

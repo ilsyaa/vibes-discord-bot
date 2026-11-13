@@ -6,7 +6,11 @@ import { createDashboardServer } from '../dashboard/server.js';
 import { renderProfileCard } from '../features/general/profile-card.js';
 import { autoplayCommand } from '../features/music/commands.js';
 import { adjustVolume } from '../features/music/interactions.js';
-import { selectAutoplayRecommendation, startPoTokenProvider } from '../features/music/player.js';
+import {
+  selectAutoplayRecommendation,
+  startPoTokenProvider,
+  warmYoutubePipeline,
+} from '../features/music/player.js';
 import { clampVolume, createPlayerButtons } from '../features/music/ui.js';
 import { ProxyPool } from '../core/proxy-pool.js';
 import { createStreamRelay } from '../core/stream-relay.js';
@@ -176,6 +180,27 @@ test('po token provider retries then gives up without blocking startup', async (
   });
   assert.equal(unavailable, null);
   assert.equal(failures, 2);
+});
+
+test('warm-up falls through to the next seed video', async () => {
+  const seen = [];
+  const youtubePlugin = {
+    ytdl: {
+      async getInfo(url) {
+        seen.push(url);
+        if (seen.length === 1) throw new Error('probe failed');
+        return { videoDetails: { id: 'second' } };
+      },
+    },
+  };
+  assert.equal(await warmYoutubePipeline(youtubePlugin, { ids: ['first', 'second'] }), true);
+  assert.deepEqual(seen, [
+    'https://www.youtube.com/watch?v=first',
+    'https://www.youtube.com/watch?v=second',
+  ]);
+
+  const failing = { ytdl: { async getInfo() { throw new Error('down'); } } };
+  assert.equal(await warmYoutubePipeline(failing, { ids: ['only'] }), false);
 });
 
 test('proxy pool rotates leases and applies cooldown after each response', async () => {
