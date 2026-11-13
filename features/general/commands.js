@@ -182,7 +182,8 @@ function buildHelpEmbed(client) {
           '`/stop` atau `!stop` - Matikan musik dan bersihkan antrean\n' +
           '`/loop` atau `!loop` - Atur pengulangan (off / song / queue)\n' +
           '`/shuffle` atau `!shuffle` - Acak antrean lagu\n' +
-          '`/volume [1-100]` atau `!volume [1-100]` - Atur volume suara\n' +
+          '`/volume [0-100]` atau `!volume [0-100]` - Atur volume suara (`0` = mute)\n' +
+          '`/autoplay [enabled]` atau `!autoplay on|off` - Lanjutkan dengan rekomendasi YouTube saat antrean habis\n' +
           '`/nowplaying` atau `!np` - Informasi lagu yang sedang berputar\n' +
           '`/diagnose` atau `!diagnose` - Diagnostik voice, permission, dan queue',
       },

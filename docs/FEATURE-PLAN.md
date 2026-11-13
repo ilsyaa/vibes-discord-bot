@@ -63,6 +63,7 @@ Discord supports slash commands, buttons, select menus, modals, autocomplete, ep
 - [ ] F-010 Add autoplay and lyrics as independent, health-checked provider adapters.
 - [ ] F-011 Add vote-skip only if the selected guild policy needs it; do not make voting the default without a control decision.
 - [ ] F-012 Add queue export/import after persistence and privacy rules exist.
+- [x] F-034 Add opt-in YouTube related-track autoplay with bounded recommendations and loop protection.
 - [x] F-033 Add a Discord-native `/profile` card with aggregate top servers, listeners, and tracks.
 
 ### P2 — Database and persistence
@@ -103,6 +104,7 @@ Discord supports slash commands, buttons, select menus, modals, autocomplete, ep
 - `play` reads persisted guild settings for the configured music channel and default volume.
 - Music playback events and dispatched commands update daily aggregate metrics.
 - `/profile` and `!profile`: PNG profile card with aggregate plays, servers, listeners, and top tracks.
+- `/autoplay` and `!autoplay`: opt-in related-track continuation after the current queue ends.
 
 ### Persistence
 

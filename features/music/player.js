@@ -9,6 +9,7 @@ import { createNowPlayingEmbed, createPlayerButtons } from './ui.js';
 
 let distubeInstance = null;
 const recordedProfileTracks = new WeakSet();
+const autoplayInFlight = new Set();
 
 export function getDisTube() {
   return distubeInstance;
@@ -32,6 +33,48 @@ function recordProfileTrack(client, queue, song) {
     recordedProfileTracks.add(song);
   } catch (error) {
     console.error('Profile track metric failed:', error.message);
+  }
+}
+
+export function selectAutoplayRecommendation(relatedSongs, queue) {
+  const usedIds = new Set(
+    [...(queue.songs || []), ...(queue.previousSongs || [])]
+      .map((song) => song.id || song.url)
+      .filter(Boolean),
+  );
+  return relatedSongs.find((song) => {
+    const duration = Number(song.duration);
+    return song.url
+      && !song.isLive
+      && duration >= 30
+      && duration <= 20 * 60
+      && !usedIds.has(song.id || song.url);
+  });
+}
+
+async function autoplayNext(client, distube, youtubePlugin, queue) {
+  if (!queue?.id || !queue.voiceChannel || !queue.textChannel || autoplayInFlight.has(queue.id)) return false;
+  if (!client.store?.getGuildSettings?.(queue.id)?.autoplay) return false;
+
+  const currentSong = queue.previousSongs?.at(-1);
+  if (!currentSong) return false;
+
+  autoplayInFlight.add(queue.id);
+  try {
+    const relatedSongs = await youtubePlugin.getRelatedSongs(currentSong);
+    const recommendation = selectAutoplayRecommendation(relatedSongs, queue);
+    if (!recommendation) return false;
+
+    await distube.play(queue.voiceChannel, recommendation.url, {
+      textChannel: queue.textChannel,
+      member: currentSong.member,
+    });
+    return true;
+  } catch (error) {
+    console.warn(`Autoplay recommendation failed for guild ${queue.id}:`, error.message);
+    return false;
+  } finally {
+    autoplayInFlight.delete(queue.id);
   }
 }
 
@@ -157,7 +200,8 @@ export async function initMusicPlayer(client) {
     queue.textChannel.send({ embeds: [embed] }).catch(() => {});
   });
 
-  distube.on('finish', (queue) => {
+  distube.on('finish', async (queue) => {
+    if (await autoplayNext(client, distube, youtubePlugin, queue)) return;
     if (!queue.textChannel) return;
     const embed = new EmbedBuilder()
       .setColor(0xED4245)

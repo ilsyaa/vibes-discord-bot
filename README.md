@@ -63,7 +63,8 @@ vibes-discord/
   - `stop`: Hentikan musik, bersihkan playlist, dan keluar dari voice channel.
   - `shuffle`: Mengacak urutan antrean.
   - `loop`: Mode repeat (Off, Song, Queue).
-  - `volume`: Atur volume (1% - 100%).
+  - `volume`: Atur volume (0% - 100%; 0 = mute).
+  - `autoplay`: Ambil satu rekomendasi terkait dari YouTube ketika antrean habis. Nonaktif secara default.
 - **Interactive UI Buttons**: Pesan status musik dilengkapi tombol kontrol langsung (⏮️ Prev, ⏯️ Pause/Resume, ⏭️ Skip, 🔀 Shuffle, ⏹️ Stop, 🔁 Loop, 📜 Antrean).
 
 ## 👤 Profile Musik
@@ -95,6 +96,7 @@ Data disimpan sebagai aggregate activity. URL media tidak disimpan; track identi
 | `/loop [mode]` | `!loop`, `!repeat` | Atur perulangan (Lagu / Playlist / Off) |
 | `/shuffle` | `!shuffle`, `!mix` | Acak urutan playlist |
 | `/volume <0-100>` | `!volume <0-100>`, `!vol`, `!v` | Atur intensitas suara; `0` untuk mute |
+| `/autoplay [enabled]` | `!autoplay on|off`, `!auto` | Aktifkan rekomendasi YouTube saat antrean habis |
 | `/nowplaying` | `!nowplaying`, `!np`, `!current` | Lihat detail lagu yang sedang berjalan |
 | `/diagnose` | `!diagnose`, `!diag`, `!health` | Cek voice channel, permission, queue, dan koneksi bot |
 | `/stats` | `!stats`, `!status` | Lihat statistik operasional runtime bot |

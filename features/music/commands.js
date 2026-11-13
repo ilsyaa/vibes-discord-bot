@@ -484,6 +484,54 @@ export const volumeCommand = {
   },
 };
 
+export const autoplayCommand = {
+  data: new SlashCommandBuilder()
+    .setName('autoplay')
+    .setDescription('Aktifkan rekomendasi YouTube saat antrean habis')
+    .addBooleanOption((option) =>
+      option
+        .setName('enabled')
+        .setDescription('Aktifkan atau matikan autoplay')
+        .setRequired(false),
+    ),
+  aliases: ['auto'],
+
+  async executeSlash(interaction, client) {
+    const enabled = interaction.options.getBoolean('enabled');
+    const settings = updateAutoplay(client, interaction.guildId, enabled, interaction.user.id);
+    return interaction.reply({
+      content: formatAutoplayStatus(settings.autoplay),
+      ephemeral: true,
+    });
+  },
+
+  async executePrefix(message, args, client) {
+    const value = (args[0] || 'status').toLowerCase();
+    if (!['on', 'off', 'status'].includes(value)) {
+      return message.reply('❌ Gunakan `!autoplay on`, `!autoplay off`, atau `!autoplay status`.');
+    }
+
+    const enabled = value === 'status' ? null : value === 'on';
+    const settings = updateAutoplay(client, message.guildId, enabled, message.author.id);
+    return message.reply(formatAutoplayStatus(settings.autoplay));
+  },
+};
+
+function updateAutoplay(client, guildId, enabled, actorId) {
+  const current = client.store?.ensureGuildSettings?.(guildId) || { autoplay: false };
+  if (enabled === null) return current;
+  return client.store?.updateGuildSettings?.(guildId, { autoplay: enabled }, actorId) || {
+    ...current,
+    autoplay: enabled,
+  };
+}
+
+function formatAutoplayStatus(enabled) {
+  return enabled
+    ? '✅ Autoplay YouTube aktif. Bot akan memilih rekomendasi terkait saat antrean habis.'
+    : '⏹️ Autoplay YouTube nonaktif. Bot berhenti setelah antrean habis.';
+}
+
 export const nowPlayingCommand = {
   data: new SlashCommandBuilder()
     .setName('nowplaying')

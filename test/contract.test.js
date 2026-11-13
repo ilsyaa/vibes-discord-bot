@@ -3,6 +3,8 @@ import test from 'node:test';
 import { openStore } from '../core/storage/database.js';
 import { createDashboardServer } from '../dashboard/server.js';
 import { renderProfileCard } from '../features/general/profile-card.js';
+import { autoplayCommand } from '../features/music/commands.js';
+import { selectAutoplayRecommendation } from '../features/music/player.js';
 
 test('profile activity persists, ranks, and rolls back invalid settings', () => {
   const store = openStore(':memory:', { defaultVolume: 80 });
@@ -73,4 +75,46 @@ test('profile card renders a PNG', async () => {
   });
 
   assert.equal(image.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
+});
+
+test('autoplay command persists an explicit opt-in', async () => {
+  let settings = { autoplay: false };
+  const store = {
+    ensureGuildSettings() {
+      return settings;
+    },
+    updateGuildSettings(guildId, patch, actorId) {
+      settings = { ...settings, ...patch, guildId, actorId };
+      return settings;
+    },
+  };
+  const replies = [];
+  const message = {
+    guildId: 'guild-a',
+    author: { id: 'user-a' },
+    reply(value) {
+      replies.push(value);
+      return Promise.resolve(value);
+    },
+  };
+
+  await autoplayCommand.executePrefix(message, ['on'], { store });
+  assert.equal(settings.autoplay, true);
+  assert.match(replies[0], /aktif/u);
+});
+
+test('autoplay recommendation skips live, long, and already played tracks', () => {
+  const recommendation = selectAutoplayRecommendation(
+    [
+      { id: 'current', url: 'https://youtube.example/current', duration: 180, isLive: false },
+      { id: 'live', url: 'https://youtube.example/live', duration: 180, isLive: true },
+      { id: 'long', url: 'https://youtube.example/long', duration: 3600, isLive: false },
+      { id: 'next', url: 'https://youtube.example/next', duration: 210, isLive: false },
+    ],
+    {
+      songs: [{ id: 'current' }],
+      previousSongs: [{ id: 'played-before' }],
+    },
+  );
+  assert.equal(recommendation.id, 'next');
 });
