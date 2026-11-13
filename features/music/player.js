@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DisTube } from 'distube';
 import { YouTubePlugin } from '@distube/youtube';
-import { createPoTokenProvider, Client } from '@distube/ytdl-core';
+import { createPoTokenProvider, Client, Ytdl } from '@distube/ytdl-core';
 import { EmbedBuilder } from 'discord.js';
 import { config } from '../../core/config.js';
 import { ProxyPool } from '../../core/proxy-pool.js';
@@ -128,36 +128,66 @@ export async function initMusicPlayer(client) {
     console.warn('⚠️ Gagal membuat PO Token Provider:', err.message);
   }
 
+  const youtubeClients = [
+    Client.Tv,
+    Client.WebEmbedded,
+    Client.Mweb,
+    Client.VisionOS,
+    Client.WebMusic,
+  ];
   const youtubePlugin = new YouTubePlugin({
     cookies,
     ytdlOptions: {
       getPoToken: poToken,
       fetch: fetchThroughProxy,
-      clients: [
-        Client.Tv,
-        Client.WebEmbedded,
-        Client.Mweb,
-        Client.VisionOS,
-        Client.WebMusic,
-      ],
+      clients: youtubeClients,
     },
   });
+  const resolvedInfos = new Map();
+  const pluginYtdl = youtubePlugin.ytdl;
+  const originalGetInfo = pluginYtdl.getInfo.bind(pluginYtdl);
+  pluginYtdl.getInfo = async (video, options) => {
+    const info = await originalGetInfo(video, options);
+    resolvedInfos.set(info.videoDetails.id, info);
+    if (resolvedInfos.size > 100) resolvedInfos.delete(resolvedInfos.keys().next().value);
+    return info;
+  };
   youtubeStreamRelay = await createStreamRelay({
-    createStream: (source) =>
-      youtubePlugin.ytdl.download(source, {
-        filter: { hasAudio: true, hasVideo: false },
-        quality: 'highestaudio',
-        highWaterMark: 1 << 25,
-        liveBuffer: 40000,
-      }),
+    createStream: async ({ url, info }) => {
+      const session = await youtubeProxyPool.createSession();
+      try {
+        const streamYtdl = new Ytdl({
+          cookie: youtubePlugin.ytCookie || undefined,
+          fetch: session.fetch,
+          getPoToken: poToken,
+          clients: youtubeClients,
+        });
+        const stream = streamYtdl.download(info || url, {
+          filter: { hasAudio: true, hasVideo: false },
+          quality: 'highestaudio',
+          highWaterMark: 1 << 20,
+          liveBuffer: 40000,
+        });
+        const closeSession = () => {
+          void session.close();
+        };
+        stream.once('end', closeSession);
+        stream.once('error', closeSession);
+        stream.once('close', closeSession);
+        return stream;
+      } catch (error) {
+        await session.close();
+        throw error;
+      }
+    },
     onError: (error) => console.warn('YouTube relay stream failed:', error.message),
   });
   youtubePlugin.getStreamURL = async (song) => {
     if (!song?.url) throw new Error('YouTube song URL missing');
-    return youtubeStreamRelay.register(song.url);
+    const info = song.id ? resolvedInfos.get(song.id) : undefined;
+    if (song.id) resolvedInfos.delete(song.id);
+    return youtubeStreamRelay.register({ url: song.url, info });
   };
-
-
   const distube = new DisTube(client, {
     emitNewSongOnly: true,
     emitAddSongWhenCreatingQueue: false,

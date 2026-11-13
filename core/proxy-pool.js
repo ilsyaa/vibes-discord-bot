@@ -111,6 +111,41 @@ export class ProxyPool {
     }
   }
 
+  async createSession(signal) {
+    if (!this.enabled) {
+      return {
+        fetch: (input, init = {}) => this.#fetch(input, init),
+        close: async () => {},
+      };
+    }
+
+    const lease = await this.#acquire(signal);
+    let failed = false;
+    let closed = false;
+    const markFailed = () => {
+      failed = true;
+    };
+
+    return {
+      fetch: async (input, init = {}) => {
+        if (closed) throw new Error('Proxy session is closed');
+        try {
+          const response = await this.#fetch(input, { ...init, dispatcher: lease.entry.agent });
+          if (statusFailure(response.status)) markFailed();
+          return this.#trackSessionResponse(response, markFailed);
+        } catch (error) {
+          markFailed();
+          throw error;
+        }
+      },
+      close: async () => {
+        if (closed) return;
+        closed = true;
+        this.#release(lease.entry, failed ? new Error('proxy session failed') : undefined);
+      },
+    };
+  }
+
   snapshot() {
     const now = this.#now();
     return {
@@ -179,6 +214,37 @@ export class ProxyPool {
       },
       async cancel(reason) {
         release(statusFailure(response.status) || reason);
+        await reader.cancel(reason);
+      },
+    });
+
+    return new Response(body, {
+      headers: response.headers,
+      status: response.status,
+      statusText: response.statusText,
+    });
+  }
+
+  #trackSessionResponse(response, markFailed) {
+    if (!response.body) return response;
+
+    const reader = response.body.getReader();
+    const body = new ReadableStream({
+      async pull(controller) {
+        try {
+          const result = await reader.read();
+          if (result.done) {
+            controller.close();
+          } else {
+            controller.enqueue(result.value);
+          }
+        } catch (error) {
+          markFailed();
+          controller.error(error);
+        }
+      },
+      async cancel(reason) {
+        if (statusFailure(response.status) || reason) markFailed();
         await reader.cancel(reason);
       },
     });

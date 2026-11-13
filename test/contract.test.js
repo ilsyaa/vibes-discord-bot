@@ -177,6 +177,30 @@ test('proxy pool rotates leases and applies cooldown after each response', async
   await pool.close();
 });
 
+test('proxy sessions pin one lease across media range requests', async () => {
+  let now = 0;
+  const used = [];
+  const pool = new ProxyPool({
+    proxies: ['192.0.2.20:8000:user:pass', '192.0.2.21:8000:user:pass'],
+    cooldownMs: 1_000,
+    failureCooldownMs: 5_000,
+    now: () => now,
+    agentFactory: (uri) => ({ uri, close: async () => {} }),
+    fetch: async (_input, init) => {
+      used.push(new URL(init.dispatcher.uri).hostname);
+      return new Response('range');
+    },
+  });
+
+  const session = await pool.createSession();
+  await (await session.fetch('https://youtube.example/media')).text();
+  await (await session.fetch('https://youtube.example/media')).text();
+  assert.deepEqual(used, ['192.0.2.20', '192.0.2.20']);
+  await session.close();
+  assert.equal(pool.snapshot().coolingDown, 1);
+  await pool.close();
+});
+
 test('proxy pool applies the failure cooldown to blocked responses', async () => {
   const pool = new ProxyPool({
     proxies: ['192.0.2.12:8000:user:pass'],

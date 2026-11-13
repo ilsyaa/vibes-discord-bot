@@ -77,6 +77,7 @@ export async function createStreamRelay({
     try {
       stream = await createStream(entry.source);
       entry.stream = stream;
+      response.on('error', () => {});
       response.writeHead(200, {
         'Cache-Control': 'no-store',
         'Content-Type': 'application/octet-stream',
