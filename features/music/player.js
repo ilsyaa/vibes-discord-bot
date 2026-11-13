@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { DisTube } from 'distube';
 import { YouTubePlugin } from '@distube/youtube';
 import { createPoTokenProvider, Client, Ytdl } from '@distube/ytdl-core';
@@ -94,6 +95,26 @@ function loadProxySource(proxyFile, inlineProxies) {
   return sources.join('\n');
 }
 
+export async function startPoTokenProvider(
+  fetchFn,
+  { attempts = 4, delays = [2_000, 6_000, 15_000], create = createPoTokenProvider } = {},
+) {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const provider = await create({ fetch: fetchFn });
+      console.log('🛡️ PO Token Provider berhasil diinisialisasi.');
+      return provider;
+    } catch (error) {
+      console.warn(`⚠️ Gagal membuat PO Token Provider (percobaan ${attempt}/${attempts}):`, error.message);
+      const delay = delays[Math.min(attempt - 1, delays.length - 1)];
+      if (attempt === attempts || delay === undefined) break;
+      await sleep(delay);
+    }
+  }
+  console.warn('⚠️ PO Token Provider tidak tersedia; playback berjalan tanpa PO token.');
+  return null;
+}
+
 export async function initMusicPlayer(client) {
   let cookies;
   const cookiePath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../cookies.json');
@@ -119,14 +140,8 @@ export async function initMusicPlayer(client) {
     console.log('🌐 YouTube proxy pool tidak dikonfigurasi; memakai koneksi langsung.');
   }
 
-  let poToken;
-  try {
-    poTokenProvider = await createPoTokenProvider({ fetch: fetchThroughProxy });
-    poToken = poTokenProvider;
-    console.log('🛡️ PO Token Provider berhasil diinisialisasi.');
-  } catch (err) {
-    console.warn('⚠️ Gagal membuat PO Token Provider:', err.message);
-  }
+  poTokenProvider = await startPoTokenProvider(fetchThroughProxy);
+  const poToken = poTokenProvider || undefined;
 
   const youtubeClients = [
     Client.Tv,

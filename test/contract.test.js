@@ -6,7 +6,7 @@ import { createDashboardServer } from '../dashboard/server.js';
 import { renderProfileCard } from '../features/general/profile-card.js';
 import { autoplayCommand } from '../features/music/commands.js';
 import { adjustVolume } from '../features/music/interactions.js';
-import { selectAutoplayRecommendation } from '../features/music/player.js';
+import { selectAutoplayRecommendation, startPoTokenProvider } from '../features/music/player.js';
 import { clampVolume, createPlayerButtons } from '../features/music/ui.js';
 import { ProxyPool } from '../core/proxy-pool.js';
 import { createStreamRelay } from '../core/stream-relay.js';
@@ -149,6 +149,33 @@ test('player controls expose autoplay and bounded volume buttons', () => {
   assert.equal(adjustVolume(0, -1), 0);
   assert.equal(adjustVolume(100, 1), 100);
   assert.equal(adjustVolume(50, 1), 60);
+});
+
+test('po token provider retries then gives up without blocking startup', async () => {
+  let calls = 0;
+  const provider = await startPoTokenProvider(async () => {}, {
+    attempts: 4,
+    delays: [0],
+    create: async () => {
+      calls += 1;
+      if (calls < 3) throw new Error('PO token minting failed');
+      return { dispose: async () => {} };
+    },
+  });
+  assert.equal(calls, 3);
+  assert.equal(typeof provider.dispose, 'function');
+
+  let failures = 0;
+  const unavailable = await startPoTokenProvider(async () => {}, {
+    attempts: 2,
+    delays: [0],
+    create: async () => {
+      failures += 1;
+      throw new Error('PO token minting failed');
+    },
+  });
+  assert.equal(unavailable, null);
+  assert.equal(failures, 2);
 });
 
 test('proxy pool rotates leases and applies cooldown after each response', async () => {
