@@ -57,6 +57,19 @@ vibes-discord/
   - `volume`: Atur volume (1% - 100%).
 - **Interactive UI Buttons**: Pesan status musik dilengkapi tombol kontrol langsung (⏮️ Prev, ⏯️ Pause/Resume, ⏭️ Skip, 🔀 Shuffle, ⏹️ Stop, 🔁 Loop, 📜 Antrean).
 
+## 👤 Profile Musik
+
+`/profile` atau `!profile` menghasilkan kartu PNG personal seperti profile card bot musik populer:
+
+- avatar dan nama Discord;
+- total plays, command, dan server aktif;
+- top servers berdasarkan aktivitas musik;
+- top friends berdasarkan listener yang sering berbagi server musik;
+- top tracks berdasarkan jumlah play.
+
+Data disimpan sebagai aggregate activity. URL media tidak disimpan; track identifier di-hash sebelum masuk database.
+
+
 ---
 
 ## ⌨️ Daftar Perintah
@@ -76,6 +89,7 @@ vibes-discord/
 | `/nowplaying` | `!nowplaying`, `!np` | Lihat detail lagu yang sedang berjalan |
 | `/diagnose` | `!diagnose`, `!diag` | Cek voice channel, permission, queue, dan koneksi bot |
 | `/stats` | `!stats`, `!status` | Lihat statistik operasional runtime bot |
+| `/profile` | `!profile`, `!me` | Tampilkan kartu profil musik personal |
 | `/ping` | `!ping` | Cek latensi bot dan koneksi Discord Gateway |
 | `/help` | `!help`, `!h` | Tampilkan menu bantuan |
 

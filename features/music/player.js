@@ -78,6 +78,21 @@ export async function initMusicPlayer(client) {
   // Event playSong (ketika sebuah lagu mulai dimainkan)
   distube.on('playSong', async (queue, song) => {
     client.store?.recordMetric(queue.guildId, 'plays');
+    const requester = song.user;
+    if (requester?.id && song.url) {
+      try {
+        client.store?.recordUserTrack?.({
+          userId: requester.id,
+          guildId: queue.guildId,
+          displayName: requester.globalName || requester.username || requester.tag || 'Listener',
+          title: song.name,
+          url: song.url,
+          durationSeconds: song.duration,
+        });
+      } catch (error) {
+        console.error('Profile track metric failed:', error.message);
+      }
+    }
     if (!queue.textChannel) return;
 
     try {

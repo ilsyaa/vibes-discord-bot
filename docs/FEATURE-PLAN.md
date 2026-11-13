@@ -62,6 +62,7 @@ Discord supports slash commands, buttons, select menus, modals, autocomplete, ep
 - [ ] F-010 Add autoplay and lyrics as independent, health-checked provider adapters.
 - [ ] F-011 Add vote-skip only if the selected guild policy needs it; do not make voting the default without a control decision.
 - [ ] F-012 Add queue export/import after persistence and privacy rules exist.
+- [x] F-033 Add a Discord-native `/profile` card with aggregate top servers, listeners, and tracks.
 
 ### P2 — Database and persistence
 
@@ -100,11 +101,13 @@ Discord supports slash commands, buttons, select menus, modals, autocomplete, ep
 - `/diagnose` and `!diagnose`: ephemeral slash diagnostics; prefix diagnostics remain visible because Discord prefix commands cannot be ephemeral.
 - `play` reads persisted guild settings for the configured music channel and default volume.
 - Music playback events and dispatched commands update daily aggregate metrics.
+- `/profile` and `!profile`: PNG profile card with aggregate plays, servers, listeners, and top tracks.
 
 ### Persistence
 
 - `core/storage/migrations.js`: numbered schema migrations.
 - `core/storage/database.js`: file-backed SQLite store, guild settings, metrics, audit rows, OAuth states, and dashboard sessions.
+- `user_activity_daily` and `user_track_stats` store aggregate profile activity; media URLs are hashed.
 - `DATABASE_PATH` defaults to `data/vibes.sqlite`, which is ignored by Git.
 
 ### Dashboard
@@ -134,6 +137,8 @@ The first database migration set should keep domain boundaries explicit:
 - `playlist_items(playlist_id, position, provider, provider_id, title, url)`
 - `music_events(id, guild_id, actor_id, event_type, provider, provider_id, occurred_at)`
 - `daily_metrics(guild_id, day, plays, skips, failures, commands, active_minutes)`
+- `user_activity_daily(user_id, guild_id, day, commands, plays, active_minutes, last_seen_at)`
+- `user_track_stats(user_id, guild_id, track_key, title, plays, duration_seconds, last_played_at)`
 - `audit_log(id, guild_id, actor_id, action, target, metadata_json, created_at)`
 - `dashboard_sessions(id, user_id, session_hash, expires_at, created_at, last_seen_at)`
 - `oauth_states(state_hash, code_verifier, expires_at, created_at)`

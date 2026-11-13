@@ -66,7 +66,7 @@ client.on('interactionCreate', async (interaction) => {
   const command = client.commands.get(interaction.commandName);
   if (!command || !command.executeSlash) return;
 
-  client.store?.recordMetric(interaction.guildId, 'commands');
+  recordCommandActivity(interaction.user, interaction.guildId);
 
   try {
     await command.executeSlash(interaction, client);
@@ -96,7 +96,7 @@ client.on('messageCreate', async (message) => {
   const command = client.commands.get(commandName) || client.aliases.get(commandName);
   if (!command || !command.executePrefix) return;
 
-  client.store?.recordMetric(message.guildId, 'commands');
+  recordCommandActivity(message.author, message.guildId);
 
   try {
     await command.executePrefix(message, args, client);
@@ -114,6 +114,17 @@ process.on('unhandledRejection', (reason, promise) => {
 process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception:', err);
 });
+
+function recordCommandActivity(user, guildId) {
+  if (!guildId || !user?.id) return;
+  store?.recordMetric(guildId, 'commands');
+  store?.recordUserActivity(
+    user.id,
+    guildId,
+    user.globalName || user.username || user.tag || 'Listener',
+    'commands',
+  );
+}
 
 // Initialize & Boot
 export async function start() {

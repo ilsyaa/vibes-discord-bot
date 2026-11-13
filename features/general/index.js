@@ -1,7 +1,7 @@
-import { pingCommand, helpCommand, statsCommand } from './commands.js';
+import { pingCommand, helpCommand, statsCommand, profileCommand } from './commands.js';
 
 export default {
   name: 'General',
   description: 'Fitur dasar utilitas dan panduan bot',
-  commands: [pingCommand, helpCommand, statsCommand],
+  commands: [pingCommand, helpCommand, statsCommand, profileCommand],
 };

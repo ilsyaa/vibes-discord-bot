@@ -1,9 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Database } from 'node:sqlite';
+import { createHash } from 'node:crypto';
 import { migrations } from './migrations.js';
 
-const metricColumns = new Set(['plays', 'skips', 'failures', 'commands', 'active_minutes']);
+const userMetricColumns = new Set(['commands', 'plays', 'active_minutes']);
 
 export function openStore(databasePath) {
   if (databasePath !== ':memory:') {
@@ -128,6 +129,138 @@ export class Store {
         ON CONFLICT(guild_id, day) DO UPDATE SET ${metric} = ${metric} + excluded.${metric}
       `)
       .run(guildId, day, amount);
+  }
+
+  recordUserActivity(userId, guildId, displayName, metric = 'commands', amount = 1) {
+    if (!userId || !guildId || !userMetricColumns.has(metric)) return;
+    if (!Number.isInteger(amount) || amount < 1) {
+      throw new RangeError('user activity amount must be a positive integer');
+    }
+
+    const day = new Date().toISOString().slice(0, 10);
+    const name = normalizeProfileText(displayName, 'Listener', 80);
+    this.database
+      .prepare(`
+        INSERT INTO user_activity_daily (user_id, guild_id, display_name, day, ${metric})
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(user_id, guild_id, day) DO UPDATE SET
+          display_name = excluded.display_name,
+          ${metric} = ${metric} + excluded.${metric},
+          last_seen_at = CURRENT_TIMESTAMP
+      `)
+      .run(userId, guildId, name, day, amount);
+  }
+
+  recordUserTrack({ userId, guildId, displayName, title, url, durationSeconds = 0 }) {
+    if (!userId || !guildId || !url) return;
+
+    const trackKey = createHash('sha256').update(String(url)).digest('hex').slice(0, 32);
+    const safeTitle = normalizeProfileText(title, 'Unknown track', 160);
+    const duration = Number.isFinite(Number(durationSeconds))
+      ? Math.max(0, Math.floor(Number(durationSeconds)))
+      : 0;
+
+    this.withTransaction(() => {
+      this.recordUserActivity(userId, guildId, displayName, 'plays');
+      this.database
+        .prepare(`
+          INSERT INTO user_track_stats
+            (user_id, guild_id, track_key, title, plays, duration_seconds)
+          VALUES (?, ?, ?, ?, 1, ?)
+          ON CONFLICT(user_id, guild_id, track_key) DO UPDATE SET
+            title = excluded.title,
+            plays = plays + 1,
+            duration_seconds = excluded.duration_seconds,
+            last_played_at = CURRENT_TIMESTAMP
+        `)
+        .run(userId, guildId, trackKey, safeTitle, duration);
+    });
+  }
+
+  getUserProfile(userId, guilds = [], limit = 3) {
+    if (!userId) throw new TypeError('userId is required');
+    const boundedLimit = Math.min(Math.max(Number(limit) || 3, 1), 10);
+    const guildMap = new Map(
+      (Array.isArray(guilds) ? guilds : [])
+        .filter((guild) => guild?.id)
+        .map((guild) => [String(guild.id), normalizeProfileText(guild.name, 'Unknown server', 100)]),
+    );
+    const guildIds = [...guildMap.keys()];
+
+    const topServers = this.database
+      .prepare(`
+        SELECT guild_id, SUM(commands) AS commands, SUM(plays) AS plays
+        FROM user_activity_daily
+        WHERE user_id = ?
+        GROUP BY guild_id
+        ORDER BY (SUM(plays) * 3 + SUM(commands)) DESC, MAX(last_seen_at) DESC
+        LIMIT ?
+      `)
+      .all(userId, boundedLimit)
+      .map((row) => ({
+        name: guildMap.get(row.guild_id) || 'Unknown server',
+        plays: Number(row.plays),
+        commands: Number(row.commands),
+      }));
+
+    const topFriends = guildIds.length
+      ? this.database
+        .prepare(`
+          SELECT user_id, MAX(display_name) AS display_name, SUM(plays) AS plays
+          FROM user_activity_daily
+          WHERE guild_id IN (${guildIds.map(() => '?').join(',')}) AND user_id != ?
+          GROUP BY user_id
+          ORDER BY SUM(plays) DESC, MAX(last_seen_at) DESC
+          LIMIT ?
+        `)
+        .all(...guildIds, userId, boundedLimit)
+        .map((row) => ({
+          name: normalizeProfileText(row.display_name, 'Listener', 80),
+          plays: Number(row.plays),
+        }))
+      : [];
+
+    const topTracks = this.database
+      .prepare(`
+        SELECT
+          track_key,
+          MAX(title) AS title,
+          SUM(plays) AS plays,
+          SUM(plays * duration_seconds) AS duration_seconds
+        FROM user_track_stats
+        WHERE user_id = ?
+        GROUP BY track_key
+        ORDER BY SUM(plays) DESC, MAX(last_played_at) DESC
+        LIMIT ?
+      `)
+      .all(userId, boundedLimit)
+      .map((row) => ({
+        title: normalizeProfileText(row.title, 'Unknown track', 160),
+        plays: Number(row.plays),
+        durationSeconds: Number(row.duration_seconds),
+      }));
+
+    const summary = this.database
+      .prepare(`
+        SELECT
+          COALESCE(SUM(commands), 0) AS commands,
+          COALESCE(SUM(plays), 0) AS plays,
+          COUNT(DISTINCT guild_id) AS servers
+        FROM user_activity_daily
+        WHERE user_id = ?
+      `)
+      .get(userId);
+
+    return {
+      summary: {
+        commands: Number(summary.commands),
+        plays: Number(summary.plays),
+        servers: Number(summary.servers),
+      },
+      topServers,
+      topFriends,
+      topTracks,
+    };
   }
 
   getMetrics(guildId = null) {
@@ -298,6 +431,11 @@ function validateSettings(settings) {
   if (!settings.featureFlags || typeof settings.featureFlags !== 'object' || Array.isArray(settings.featureFlags)) {
     throw new TypeError('featureFlags must be an object');
   }
+}
+
+function normalizeProfileText(value, fallback, maxLength) {
+  const text = String(value || '').trim();
+  return (text || fallback).slice(0, maxLength);
 }
 
 function parseJson(value, fallback) {

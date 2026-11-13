@@ -17,6 +17,7 @@
     "@discordjs/voice": "^0.19.2",
     "@distube/youtube": "^1.1.0",
     "@distube/ytdl-core": "^5.2.1",
+    "@napi-rs/canvas": "^1.1.1",
     "discord.js": "^14.28.1",
     "distube": "^5.2.3",
     "dotenv": "^18.0.10",

@@ -69,4 +69,41 @@ export const migrations = [
         ON oauth_states (expires_at);
     `,
   },
+  {
+    version: 3,
+    name: 'user-profile-activity',
+    sql: `
+      CREATE TABLE IF NOT EXISTS user_activity_daily (
+        user_id TEXT NOT NULL,
+        guild_id TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        day TEXT NOT NULL,
+        commands INTEGER NOT NULL DEFAULT 0,
+        plays INTEGER NOT NULL DEFAULT 0,
+        active_minutes INTEGER NOT NULL DEFAULT 0,
+        last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (user_id, guild_id, day)
+      ) STRICT;
+
+      CREATE INDEX IF NOT EXISTS user_activity_user_idx
+        ON user_activity_daily (user_id, day DESC);
+
+      CREATE INDEX IF NOT EXISTS user_activity_guild_idx
+        ON user_activity_daily (guild_id, day DESC);
+
+      CREATE TABLE IF NOT EXISTS user_track_stats (
+        user_id TEXT NOT NULL,
+        guild_id TEXT NOT NULL,
+        track_key TEXT NOT NULL,
+        title TEXT NOT NULL,
+        plays INTEGER NOT NULL DEFAULT 0,
+        duration_seconds INTEGER NOT NULL DEFAULT 0,
+        last_played_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (user_id, guild_id, track_key)
+      ) STRICT;
+
+      CREATE INDEX IF NOT EXISTS user_track_stats_user_idx
+        ON user_track_stats (user_id, plays DESC, last_played_at DESC);
+    `,
+  },
 ];

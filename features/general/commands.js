@@ -1,4 +1,5 @@
-import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, AttachmentBuilder } from 'discord.js';
+import { renderProfileCard } from './profile-card.js';
 
 export const pingCommand = {
   data: new SlashCommandBuilder()
@@ -58,6 +59,40 @@ export const statsCommand = {
     return message.reply({ embeds: [buildStatsEmbed(client)] });
   },
 };
+
+export const profileCommand = {
+  data: new SlashCommandBuilder()
+    .setName('profile')
+    .setDescription('Lihat kartu profil musik dan aktivitasmu'),
+  aliases: ['me'],
+
+  async executeSlash(interaction, client) {
+    return interaction.reply({ files: [await createProfileAttachment(interaction.user, client)] });
+  },
+
+  async executePrefix(message, args, client) {
+    return message.reply({ files: [await createProfileAttachment(message.author, client)] });
+  },
+};
+
+async function createProfileAttachment(user, client) {
+  const guilds = [...client.guilds.cache.values()].map((guild) => ({
+    id: guild.id,
+    name: guild.name,
+  }));
+  const profile = client.store?.getUserProfile?.(user.id, guilds) || {
+    summary: { plays: 0, commands: 0, servers: 0 },
+    topServers: [],
+    topFriends: [],
+    topTracks: [],
+  };
+  const image = await renderProfileCard({
+    displayName: user.globalName || user.username || user.tag,
+    avatarUrl: user.displayAvatarURL({ extension: 'png', size: 256 }),
+    profile,
+  });
+  return new AttachmentBuilder(image, { name: `vibes-profile-${user.id}.png` });
+}
 
 function buildStatsEmbed(client) {
   const cachedMembers = [...client.guilds.cache.values()]
@@ -156,6 +191,7 @@ function buildHelpEmbed(client) {
         value:
           '`/ping` atau `!ping` - Cek latensi respons bot\n' +
           '`/stats` atau `!stats` - Lihat status operasional bot\n' +
+          '`/profile` atau `!profile` (`!me`) - Kartu profil musik personal\n' +
           '`/help` atau `!help` - Menampilkan panduan bantuan ini',
       },
     )
