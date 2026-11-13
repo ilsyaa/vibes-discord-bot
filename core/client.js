@@ -9,6 +9,7 @@ import { loadFeatures } from './loader.js';
 import { initLogger } from './logger.js';
 import { openStore } from './storage/database.js';
 import { startDashboard } from '../dashboard/server.js';
+import { closeMusicPlayer } from '../features/music/player.js';
 
 const logFile = initLogger();
 console.log(`📁 Error log session: ${logFile}`);
@@ -124,6 +125,7 @@ async function shutdown() {
   shutdownPromise = (async () => {
     await closeServer(dashboardServer);
     dashboardServer = null;
+    await closeMusicPlayer();
     store?.close();
     store = null;
     client.store = null;

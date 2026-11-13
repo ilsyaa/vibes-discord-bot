@@ -5,6 +5,7 @@ import { createDashboardServer } from '../dashboard/server.js';
 import { renderProfileCard } from '../features/general/profile-card.js';
 import { autoplayCommand } from '../features/music/commands.js';
 import { selectAutoplayRecommendation } from '../features/music/player.js';
+import { ProxyPool } from '../core/proxy-pool.js';
 
 test('profile activity persists, ranks, and rolls back invalid settings', () => {
   const store = openStore(':memory:', { defaultVolume: 80 });
@@ -117,4 +118,50 @@ test('autoplay recommendation skips live, long, and already played tracks', () =
     },
   );
   assert.equal(recommendation.id, 'next');
+});
+
+test('proxy pool rotates leases and applies cooldown after each response', async () => {
+  let now = 0;
+  const used = [];
+  const pool = new ProxyPool({
+    proxies: ['192.0.2.10:8000:user:pass', '192.0.2.11:8000:user:pass'],
+    cooldownMs: 1_000,
+    failureCooldownMs: 5_000,
+    now: () => now,
+    agentFactory: (uri) => ({ uri, close: async () => {} }),
+    fetch: async (_input, init) => {
+      used.push(new URL(init.dispatcher.uri).hostname);
+      return new Response('ok');
+    },
+  });
+
+  await (await pool.fetch('https://youtube.example/player')).text();
+  await (await pool.fetch('https://youtube.example/player')).text();
+  assert.deepEqual(used, ['192.0.2.10', '192.0.2.11']);
+  assert.equal(pool.snapshot().coolingDown, 2);
+
+  now = 1_000;
+  await (await pool.fetch('https://youtube.example/player')).text();
+  assert.equal(used[2], '192.0.2.10');
+  await pool.close();
+});
+
+test('proxy pool applies the failure cooldown to blocked responses', async () => {
+  const pool = new ProxyPool({
+    proxies: ['192.0.2.12:8000:user:pass'],
+    cooldownMs: 1_000,
+    failureCooldownMs: 5_000,
+    agentFactory: (uri) => ({ uri, close: async () => {} }),
+    fetch: async () => new Response('blocked', { status: 403 }),
+  });
+
+  await (await pool.fetch('https://youtube.example/player')).text();
+  assert.deepEqual(pool.snapshot(), {
+    total: 1,
+    available: 0,
+    busy: 0,
+    coolingDown: 1,
+    failures: 1,
+  });
+  await pool.close();
 });

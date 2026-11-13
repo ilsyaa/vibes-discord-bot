@@ -16,6 +16,22 @@ export const config = {
   dashboardClientId: process.env.DASHBOARD_CLIENT_ID || process.env.CLIENT_ID || '',
   dashboardClientSecret: process.env.DASHBOARD_CLIENT_SECRET || '',
   dashboardSessionSecret: process.env.DASHBOARD_SESSION_SECRET || '',
+  youtubeProxyFile: path.resolve(process.env.YOUTUBE_PROXY_FILE || 'data/youtube-proxies.txt'),
+  youtubeProxies: process.env.YOUTUBE_PROXIES || process.env.YOUTUBE_PROXY || '',
+  youtubeProxyCooldownMs: parseInteger(
+    process.env.YOUTUBE_PROXY_COOLDOWN_MS,
+    60_000,
+    'YOUTUBE_PROXY_COOLDOWN_MS',
+    1_000,
+    60 * 60 * 1_000,
+  ),
+  youtubeProxyFailureCooldownMs: parseInteger(
+    process.env.YOUTUBE_PROXY_FAILURE_COOLDOWN_MS,
+    10 * 60_000,
+    'YOUTUBE_PROXY_FAILURE_COOLDOWN_MS',
+    1_000,
+    24 * 60 * 60 * 1_000,
+  ),
 };
 
 function parseInteger(value, fallback, name, minimum, maximum) {

@@ -93,10 +93,22 @@ export const playCommand = {
       loadingMsg.delete().catch(() => {});
     } catch (err) {
       console.error('Error prefix play:', err);
-      loadingMsg.edit(`⚠️ Gagal memutar lagu: \`${err.message}\``).catch(() => {});
+      await editLoadingMessage(
+        loadingMsg,
+        message,
+        `⚠️ Gagal memutar lagu: \`${err.message}\``,
+      );
     }
   },
 };
+
+async function editLoadingMessage(loadingMsg, sourceMessage, content) {
+  try {
+    await loadingMsg.edit(content);
+  } catch {
+    await sourceMessage.reply(content).catch(() => {});
+  }
+}
 function applyGuildSettings(distube, guildId, client) {
   try {
     const settings = client.store?.ensureGuildSettings?.(guildId);

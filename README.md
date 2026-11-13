@@ -120,7 +120,15 @@ npm ci
 
 The profile card renderer includes its native canvas package through npm. Do not copy
 live YouTube cookies into the repository; keep them in the ignored `cookies.json`.
+Proxy credentials are also runtime-only. Store one `host:port:username:password`
+entry per line in the ignored `data/youtube-proxies.txt` file and set its mode to
+`600`.
 
+The YouTube fetch path leases a proxy for each upstream request, rotates through
+available entries, applies a normal cooldown after use, and applies a longer
+cooldown after network/403/429/5xx failures. When a proxy file is configured, the
+bot waits for the next healthy lease instead of silently falling back to the
+server's public IP.
 
 ### 2. Konfigurasi Token di `.env`
 Salin template `.env.example` ke `.env`:
@@ -133,6 +141,9 @@ DISCORD_TOKEN=token_bot_anda_disini
 CLIENT_ID=client_id_anda_disini
 PREFIX=!
 DEFAULT_VOLUME=50
+YOUTUBE_PROXY_FILE=data/youtube-proxies.txt
+YOUTUBE_PROXY_COOLDOWN_MS=60000
+YOUTUBE_PROXY_FAILURE_COOLDOWN_MS=600000
 DATABASE_PATH=data/vibes.sqlite
 
 # Optional dashboard

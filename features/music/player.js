@@ -5,9 +5,14 @@ import { DisTube } from 'distube';
 import { YouTubePlugin } from '@distube/youtube';
 import { createPoTokenProvider, Client } from '@distube/ytdl-core';
 import { EmbedBuilder } from 'discord.js';
+import { config } from '../../core/config.js';
+import { ProxyPool } from '../../core/proxy-pool.js';
 import { createNowPlayingEmbed, createPlayerButtons } from './ui.js';
 
 let distubeInstance = null;
+let youtubeProxyPool = null;
+let poTokenProvider = null;
+
 const recordedProfileTracks = new WeakSet();
 const autoplayInFlight = new Set();
 
@@ -78,6 +83,15 @@ async function autoplayNext(client, distube, youtubePlugin, queue) {
   }
 }
 
+function loadProxySource(proxyFile, inlineProxies) {
+  const sources = [];
+  if (proxyFile && fs.existsSync(proxyFile)) {
+    sources.push(fs.readFileSync(proxyFile, 'utf8'));
+  }
+  if (inlineProxies) sources.push(inlineProxies);
+  return sources.join('\n');
+}
+
 export async function initMusicPlayer(client) {
   let cookies;
   const cookiePath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../cookies.json');
@@ -90,9 +104,23 @@ export async function initMusicPlayer(client) {
     }
   }
 
+  const proxySource = loadProxySource(config.youtubeProxyFile, config.youtubeProxies);
+  youtubeProxyPool = new ProxyPool({
+    proxies: proxySource,
+    cooldownMs: config.youtubeProxyCooldownMs,
+    failureCooldownMs: config.youtubeProxyFailureCooldownMs,
+  });
+  const fetchThroughProxy = youtubeProxyPool.fetch.bind(youtubeProxyPool);
+  if (youtubeProxyPool.enabled) {
+    console.log(`🌐 YouTube proxy pool aktif: ${youtubeProxyPool.size} proxy; rotasi setelah cooldown.`);
+  } else {
+    console.log('🌐 YouTube proxy pool tidak dikonfigurasi; memakai koneksi langsung.');
+  }
+
   let poToken;
   try {
-    poToken = await createPoTokenProvider();
+    poTokenProvider = await createPoTokenProvider({ fetch: fetchThroughProxy });
+    poToken = poTokenProvider;
     console.log('🛡️ PO Token Provider berhasil diinisialisasi.');
   } catch (err) {
     console.warn('⚠️ Gagal membuat PO Token Provider:', err.message);
@@ -102,6 +130,7 @@ export async function initMusicPlayer(client) {
     cookies,
     ytdlOptions: {
       getPoToken: poToken,
+      fetch: fetchThroughProxy,
       clients: [
         Client.Tv,
         Client.WebEmbedded,
@@ -236,4 +265,19 @@ export async function initMusicPlayer(client) {
 
   distubeInstance = distube;
   return distube;
+}
+
+export async function closeMusicPlayer() {
+  const provider = poTokenProvider;
+  const pool = youtubeProxyPool;
+  poTokenProvider = null;
+  youtubeProxyPool = null;
+  distubeInstance = null;
+
+  await provider?.dispose?.().catch((error) => {
+    console.warn('⚠️ Gagal menutup PO Token Provider:', error.message);
+  });
+  await pool?.close?.().catch((error) => {
+    console.warn('⚠️ Gagal menutup YouTube proxy pool:', error.message);
+  });
 }
