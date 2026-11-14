@@ -256,18 +256,19 @@ export async function initMusicPlayer(client) {
     return [...resolvedInfos.values()].find((candidate) => candidate.videoDetails?.url === song.url);
   };
 
-  const recoverSongMetadata = async (song) => {
+  const recoverSongMetadata = async (song, { requireInfo = false } = {}) => {
     if (!song?.url) return undefined;
-    if (hasSongTitle(song)) return findResolvedInfo(song);
+    const initialInfo = findResolvedInfo(song);
+    if (hasSongTitle(song) && (!requireInfo || initialInfo)) return initialInfo;
 
     const existingRequest = songMetadataRequests.get(song);
     if (existingRequest) return existingRequest;
 
     const request = (async () => {
-      let info = findResolvedInfo(song);
+      let info = initialInfo;
       hydrateSongMetadata(song, info);
 
-      if (!hasSongTitle(song)) {
+      if (!hasSongTitle(song) || (requireInfo && !info)) {
         try {
           info = await youtubePlugin.ytdl.getInfo(song.url);
           hydrateSongMetadata(song, info);
@@ -338,7 +339,7 @@ export async function initMusicPlayer(client) {
   });
   youtubePlugin.getStreamURL = async (song) => {
     if (!song?.url) throw new Error('YouTube song URL missing');
-    const info = await recoverSongMetadata(song);
+    const info = await recoverSongMetadata(song, { requireInfo: true });
     if (song.id) resolvedInfos.delete(song.id);
     if (info?.videoDetails?.id) resolvedInfos.delete(info.videoDetails.id);
     return youtubeStreamRelay.register({ url: song.url, info });
