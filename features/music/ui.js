@@ -79,7 +79,7 @@ export function createPlayerButtons(queue, { autoplayEnabled = false } = {}) {
       .setLabel('Next')
       .setEmoji('⏭️')
       .setStyle(ButtonStyle.Secondary)
-      .setDisabled(!queue || queue.songs.length <= 1),
+      .setDisabled(!queue || (queue.songs.length <= 1 && !autoplayEnabled)),
     new ButtonBuilder()
       .setCustomId('music_shuffle')
       .setLabel('Shuffle')

@@ -183,6 +183,7 @@ test('player controls expose autoplay and bounded volume buttons', () => {
     'music_queue',
   ]);
   assert.equal(buttons.find((button) => button.custom_id === 'music_autoplay').label, 'Auto: On');
+  assert.equal(buttons.find((button) => button.custom_id === 'music_skip').disabled, false);
   assert.equal(buttons.find((button) => button.custom_id === 'music_volume_down').disabled, false);
   assert.equal(clampVolume(-10), 0);
   assert.equal(clampVolume(150), 100);

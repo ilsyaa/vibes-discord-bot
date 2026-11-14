@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
-import { getDisTube } from './player.js';
+import { getDisTube, skipWithAutoplay } from './player.js';
 import { formatRepeatMode, createNowPlayingEmbed, createPlayerButtons, formatSongLink, getSongTitle } from './ui.js';
 
 export const playCommand = {
@@ -148,6 +148,12 @@ export const skipCommand = {
       });
     } catch (err) {
       if (err.errorCode === 'NO_UP_NEXT' || err.message.includes('NO_UP_NEXT')) {
+        const song = await skipWithAutoplay(interaction.client, queue);
+        if (song) {
+          return interaction.reply({
+            content: `⏭️ Berhasil melewati lagu! Sekarang memutar: **${getSongTitle(song)}**`,
+          });
+        }
         await queue.stop();
         return interaction.reply({
           content: '⏭️ Tidak ada lagu berikutnya di antrean playlist. Pemutaran dihentikan.',
@@ -160,7 +166,7 @@ export const skipCommand = {
     }
   },
 
-  async executePrefix(message) {
+  async executePrefix(message, _args, client) {
     const distube = getDisTube();
     const queue = distube.getQueue(message.guildId);
 
@@ -173,6 +179,8 @@ export const skipCommand = {
       return message.reply(`⏭️ Berhasil melewati lagu! Sekarang memutar: **${getSongTitle(song)}**`);
     } catch (err) {
       if (err.errorCode === 'NO_UP_NEXT' || err.message.includes('NO_UP_NEXT')) {
+        const song = await skipWithAutoplay(client, queue);
+        if (song) return message.reply(`⏭️ Berhasil melewati lagu! Sekarang memutar: **${getSongTitle(song)}**`);
         await queue.stop();
         return message.reply('⏭️ Tidak ada lagu berikutnya di antrean playlist. Pemutaran dihentikan.');
       }

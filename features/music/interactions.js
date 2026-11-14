@@ -1,4 +1,4 @@
-import { getDisTube } from './player.js';
+import { getDisTube, skipWithAutoplay } from './player.js';
 import { clampVolume, formatRepeatMode, createNowPlayingEmbed, createPlayerButtons, formatSongLink, getSongTitle } from './ui.js';
 
 export async function handleMusicButton(interaction, client) {
@@ -69,10 +69,17 @@ export async function handleMusicButton(interaction, client) {
           });
         } catch (err) {
           if (err.errorCode === 'NO_UP_NEXT' || err.message.includes('NO_UP_NEXT')) {
-            await queue.stop();
-            await interaction.reply({
-              content: `⏭️ **${member.user.username}** melewati lagu terakhir. Antrean selesai.`,
-            });
+            const song = await skipWithAutoplay(client, queue);
+            if (song) {
+              await interaction.reply({
+                content: `⏭️ **${member.user.username}** melewati lagu. Sekarang memutar: **${getSongTitle(song)}**`,
+              });
+            } else {
+              await queue.stop();
+              await interaction.reply({
+                content: `⏭️ **${member.user.username}** melewati lagu terakhir. Antrean selesai.`,
+              });
+            }
           } else {
             await interaction.reply({
               content: `⚠️ Gagal melewati lagu: \`${err.message}\``,

@@ -12,6 +12,7 @@ import { createStreamRelay } from '../../core/stream-relay.js';
 import { createNowPlayingEmbed, createPlayerButtons, formatSongLink, getSongTitle } from './ui.js';
 
 let distubeInstance = null;
+let youtubePluginInstance = null;
 let youtubeProxyPool = null;
 let youtubeStreamRelay = null;
 let poTokenProvider = null;
@@ -61,11 +62,11 @@ export function selectAutoplayRecommendation(relatedSongs, queue) {
   });
 }
 
-async function autoplayNext(client, distube, youtubePlugin, queue) {
+async function autoplayNext(client, distube, youtubePlugin, queue, { manual = false } = {}) {
   if (!queue?.id || !queue.voiceChannel || !queue.textChannel || autoplayInFlight.has(queue.id)) return false;
   if (!client.store?.getGuildSettings?.(queue.id)?.autoplay) return false;
 
-  const currentSong = queue.previousSongs?.at(-1);
+  const currentSong = manual ? queue.songs?.[0] : queue.previousSongs?.at(-1);
   if (!currentSong) return false;
 
   autoplayInFlight.add(queue.id);
@@ -78,13 +79,17 @@ async function autoplayNext(client, distube, youtubePlugin, queue) {
       textChannel: queue.textChannel,
       member: currentSong.member,
     });
-    return true;
+    return manual ? queue.skip() : true;
   } catch (error) {
     console.warn(`Autoplay recommendation failed for guild ${queue.id}:`, error.message);
     return false;
   } finally {
     autoplayInFlight.delete(queue.id);
   }
+}
+
+export async function skipWithAutoplay(client, queue) {
+  return autoplayNext(client, distubeInstance, youtubePluginInstance, queue, { manual: true });
 }
 
 function loadProxySource(proxyFile, inlineProxies) {
@@ -190,6 +195,7 @@ export async function initMusicPlayer(client) {
       clients: youtubeClients,
     },
   });
+  youtubePluginInstance = youtubePlugin;
   const resolvedInfos = new Map();
   const songMetadataRequests = new WeakMap();
 
@@ -428,6 +434,7 @@ export async function closeMusicPlayer() {
   const pool = youtubeProxyPool;
   const relay = youtubeStreamRelay;
   poTokenProvider = null;
+  youtubePluginInstance = null;
   youtubeProxyPool = null;
   youtubeStreamRelay = null;
   distubeInstance = null;
