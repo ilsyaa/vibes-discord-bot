@@ -62,28 +62,29 @@ export async function handleMusicButton(interaction, client) {
       }
 
       case 'music_skip': {
+        await interaction.deferReply();
         try {
           const song = await queue.skip();
-          await interaction.reply({
+          await interaction.editReply({
             content: `⏭️ **${member.user.username}** melewati lagu. Sekarang memutar: **${getSongTitle(song)}**`,
           });
         } catch (err) {
           if (err.errorCode === 'NO_UP_NEXT' || err.message.includes('NO_UP_NEXT')) {
+            await interaction.editReply({ content: '🔍 Mencari rekomendasi autoplay berikutnya...' });
             const song = await skipWithAutoplay(client, queue);
             if (song) {
-              await interaction.reply({
+              await interaction.editReply({
                 content: `⏭️ **${member.user.username}** melewati lagu. Sekarang memutar: **${getSongTitle(song)}**`,
               });
             } else {
               await queue.stop();
-              await interaction.reply({
+              await interaction.editReply({
                 content: `⏭️ **${member.user.username}** melewati lagu terakhir. Antrean selesai.`,
               });
             }
           } else {
-            await interaction.reply({
+            await interaction.editReply({
               content: `⚠️ Gagal melewati lagu: \`${err.message}\``,
-              ephemeral: true,
             });
           }
         }
@@ -181,7 +182,11 @@ export async function handleMusicButton(interaction, client) {
     return true;
   } catch (error) {
     console.error('Error button handler:', error);
-    if (!interaction.replied && !interaction.deferred) {
+    if (interaction.deferred) {
+      await interaction.editReply({
+        content: `⚠️ Terjadi kesalahan: \`${error.message}\``,
+      }).catch(() => {});
+    } else if (!interaction.replied) {
       await interaction.reply({
         content: `⚠️ Terjadi kesalahan: \`${error.message}\``,
         ephemeral: true,

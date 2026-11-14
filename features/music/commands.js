@@ -141,27 +141,28 @@ export const skipCommand = {
       });
     }
 
+    await interaction.deferReply();
     try {
       const song = await queue.skip();
-      return interaction.reply({
+      return interaction.editReply({
         content: `⏭️ Berhasil melewati lagu! Sekarang memutar: **${getSongTitle(song)}**`,
       });
     } catch (err) {
       if (err.errorCode === 'NO_UP_NEXT' || err.message.includes('NO_UP_NEXT')) {
+        await interaction.editReply({ content: '🔍 Mencari rekomendasi autoplay berikutnya...' });
         const song = await skipWithAutoplay(interaction.client, queue);
         if (song) {
-          return interaction.reply({
+          return interaction.editReply({
             content: `⏭️ Berhasil melewati lagu! Sekarang memutar: **${getSongTitle(song)}**`,
           });
         }
         await queue.stop();
-        return interaction.reply({
+        return interaction.editReply({
           content: '⏭️ Tidak ada lagu berikutnya di antrean playlist. Pemutaran dihentikan.',
         });
       }
-      return interaction.reply({
+      return interaction.editReply({
         content: `⚠️ Gagal melewati lagu: \`${err.message}\``,
-        ephemeral: true,
       });
     }
   },

@@ -19,6 +19,9 @@ let poTokenProvider = null;
 
 const recordedProfileTracks = new WeakSet();
 const autoplayInFlight = new Set();
+const autoplayRelatedCache = new Map();
+const autoplayRelatedInFlight = new Map();
+
 
 export function getDisTube() {
   return distubeInstance;
@@ -61,6 +64,33 @@ export function selectAutoplayRecommendation(relatedSongs, queue) {
       && !usedIds.has(song.id || song.url);
   });
 }
+async function getAutoplayRelatedSongs(youtubePlugin, song) {
+  const key = song?.id || song?.url;
+  if (!key) return [];
+  if (autoplayRelatedCache.has(key)) return autoplayRelatedCache.get(key);
+
+  const existingRequest = autoplayRelatedInFlight.get(key);
+  if (existingRequest) return existingRequest;
+
+  const request = youtubePlugin.getRelatedSongs(song).then((relatedSongs) => {
+    autoplayRelatedCache.set(key, relatedSongs);
+    if (autoplayRelatedCache.size > 100) {
+      autoplayRelatedCache.delete(autoplayRelatedCache.keys().next().value);
+    }
+    return relatedSongs;
+  }).finally(() => {
+    if (autoplayRelatedInFlight.get(key) === request) autoplayRelatedInFlight.delete(key);
+  });
+  autoplayRelatedInFlight.set(key, request);
+  return request;
+}
+
+function prefetchAutoplayRelatedSongs(youtubePlugin, song) {
+  void getAutoplayRelatedSongs(youtubePlugin, song).catch((error) => {
+    console.warn(`Autoplay prefetch failed for ${song?.url || 'unknown song'}:`, error.message);
+  });
+}
+
 
 async function autoplayNext(client, distube, youtubePlugin, queue, { manual = false } = {}) {
   if (!queue?.id || !queue.voiceChannel || !queue.textChannel || autoplayInFlight.has(queue.id)) return false;
@@ -71,7 +101,7 @@ async function autoplayNext(client, distube, youtubePlugin, queue, { manual = fa
 
   autoplayInFlight.add(queue.id);
   try {
-    const relatedSongs = await youtubePlugin.getRelatedSongs(currentSong);
+    const relatedSongs = await getAutoplayRelatedSongs(youtubePlugin, currentSong);
     const recommendation = selectAutoplayRecommendation(relatedSongs, queue);
     if (!recommendation) return false;
 
@@ -327,6 +357,9 @@ export async function initMusicPlayer(client) {
   distube.on('playSong', async (queue, song) => {
     client.store?.recordMetric(queue.id, 'plays');
     recordProfileTrack(client, queue, song);
+    if (client.store?.getGuildSettings?.(queue.id)?.autoplay === true) {
+      prefetchAutoplayRelatedSongs(youtubePlugin, song);
+    }
     if (!queue.textChannel) return;
 
     try {
@@ -438,6 +471,8 @@ export async function closeMusicPlayer() {
   youtubeProxyPool = null;
   youtubeStreamRelay = null;
   distubeInstance = null;
+  autoplayRelatedCache.clear();
+  autoplayRelatedInFlight.clear();
 
   await relay?.close?.().catch((error) => {
     console.warn('⚠️ Gagal menutup YouTube stream relay:', error.message);
