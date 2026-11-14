@@ -11,6 +11,25 @@ export function formatRepeatMode(mode) {
   return '❌ Nonaktif';
 }
 
+export function getSongTitle(song, fallback = 'Judul tidak tersedia') {
+  const candidates = [
+    song?.name,
+    song?.title,
+    song?.metadata?.title,
+    song?.info?.videoDetails?.title,
+    song?.videoDetails?.title,
+  ];
+  const title = candidates.find((value) => typeof value === 'string' && value.trim());
+  return title?.trim() || fallback;
+}
+export function formatSongLink(song) {
+  const title = getSongTitle(song)
+    .replaceAll('\\', '\\\\')
+    .replaceAll('[', '\\[')
+    .replaceAll(']', '\\]');
+  return `[${title}](${song.url})`;
+}
+
 export function createNowPlayingEmbed(queue, song) {
   const isPaused = queue.paused;
   const loopStatus = formatRepeatMode(queue.repeatMode);
@@ -18,8 +37,7 @@ export function createNowPlayingEmbed(queue, song) {
   return new EmbedBuilder()
     .setColor(0x5865F2)
     .setTitle('🎵 Sedang Memutar Musik (YouTube Stream)')
-    .setDescription(`**[${song.name}](${song.url})**`)
-    .setThumbnail(song.thumbnail || null)
+    .setDescription(`**${formatSongLink(song)}**`)
     .addFields(
       { name: '⏱️ Durasi', value: song.formattedDuration || 'Live Stream', inline: true },
       { name: '👤 Channel / Artist', value: song.uploader?.name || 'Unknown', inline: true },

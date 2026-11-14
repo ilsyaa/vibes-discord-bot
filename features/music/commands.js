@@ -1,6 +1,6 @@
 import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
 import { getDisTube } from './player.js';
-import { formatRepeatMode, createNowPlayingEmbed, createPlayerButtons } from './ui.js';
+import { formatRepeatMode, createNowPlayingEmbed, createPlayerButtons, formatSongLink, getSongTitle } from './ui.js';
 
 export const playCommand = {
   data: new SlashCommandBuilder()
@@ -144,7 +144,7 @@ export const skipCommand = {
     try {
       const song = await queue.skip();
       return interaction.reply({
-        content: `⏭️ Berhasil melewati lagu! Sekarang memutar: **${song.name}**`,
+        content: `⏭️ Berhasil melewati lagu! Sekarang memutar: **${getSongTitle(song)}**`,
       });
     } catch (err) {
       if (err.errorCode === 'NO_UP_NEXT' || err.message.includes('NO_UP_NEXT')) {
@@ -170,7 +170,7 @@ export const skipCommand = {
 
     try {
       const song = await queue.skip();
-      return message.reply(`⏭️ Berhasil melewati lagu! Sekarang memutar: **${song.name}**`);
+      return message.reply(`⏭️ Berhasil melewati lagu! Sekarang memutar: **${getSongTitle(song)}**`);
     } catch (err) {
       if (err.errorCode === 'NO_UP_NEXT' || err.message.includes('NO_UP_NEXT')) {
         await queue.stop();
@@ -201,7 +201,7 @@ export const prevCommand = {
     try {
       const song = await queue.previous();
       return interaction.reply({
-        content: `⏮️ Memutar kembali lagu sebelumnya: **${song.name}**`,
+        content: `⏮️ Memutar kembali lagu sebelumnya: **${getSongTitle(song)}**`,
       });
     } catch (err) {
       if (err.errorCode === 'NO_PREVIOUS' || err.message.includes('NO_PREVIOUS')) {
@@ -227,7 +227,7 @@ export const prevCommand = {
 
     try {
       const song = await queue.previous();
-      return message.reply(`⏮️ Memutar kembali lagu sebelumnya: **${song.name}**`);
+      return message.reply(`⏮️ Memutar kembali lagu sebelumnya: **${getSongTitle(song)}**`);
     } catch (err) {
       if (err.errorCode === 'NO_PREVIOUS' || err.message.includes('NO_PREVIOUS')) {
         return message.reply('❌ Tidak ada lagu sebelumnya dalam riwayat pemutaran!');
@@ -688,13 +688,13 @@ function buildQueueEmbed(queue) {
   const currentSong = queue.songs[0];
   const upcomingSongs = queue.songs.slice(1, 11);
 
-  let description = `**Sedang Diputar:**\n▶️ [${currentSong.name}](${currentSong.url}) | \`${currentSong.formattedDuration}\` (oleh: <@${currentSong.user?.id}>)\n\n`;
+  let description = `**Sedang Diputar:**\n▶️ ${formatSongLink(currentSong)} | \`${currentSong.formattedDuration}\` (oleh: <@${currentSong.user?.id}>)\n\n`;
 
   if (upcomingSongs.length > 0) {
     description += '**Daftar Lagu Berikutnya:**\n';
     description += upcomingSongs
       .map((song, index) => {
-        return `\`${index + 1}.\` [${song.name}](${song.url}) | \`${song.formattedDuration}\` (oleh: <@${song.user?.id}>)`;
+        return `\`${index + 1}.\` ${formatSongLink(song)} | \`${song.formattedDuration}\` (oleh: <@${song.user?.id}>)`;
       })
       .join('\n');
 

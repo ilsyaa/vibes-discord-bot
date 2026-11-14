@@ -10,10 +10,46 @@ import {
   selectAutoplayRecommendation,
   startPoTokenProvider,
   warmYoutubePipeline,
+  hydrateSongMetadata,
 } from '../features/music/player.js';
-import { clampVolume, createPlayerButtons } from '../features/music/ui.js';
+import {
+  clampVolume,
+  createPlayerButtons,
+  createNowPlayingEmbed,
+  formatSongLink,
+  getSongTitle,
+} from '../features/music/ui.js';
+
 import { ProxyPool } from '../core/proxy-pool.js';
 import { createStreamRelay } from '../core/stream-relay.js';
+
+test('empty YouTube song names recover from fetched metadata', () => {
+  const song = {
+    name: '',
+    url: 'https://www.youtube.com/watch?v=video-id',
+  };
+
+  hydrateSongMetadata(song, { videoDetails: { title: 'Recovered title' } });
+
+  assert.equal(getSongTitle(song), 'Recovered title');
+  assert.match(
+    createNowPlayingEmbed(
+      { paused: false, repeatMode: 0, volume: 50, songs: [song] },
+      song,
+    ).toJSON().description,
+    /\[Recovered title\]\(https:\/\/www\.youtube\.com\/watch\?v=video-id\)/u,
+  );
+});
+
+test('song links escape markdown delimiters', () => {
+  assert.equal(
+    formatSongLink({
+      name: 'A [B] \\ C',
+      url: 'https://youtube.example/video',
+    }),
+    '[A \\[B\\] \\\\ C](https://youtube.example/video)',
+  );
+});
 
 test('profile activity persists, ranks, and rolls back invalid settings', () => {
   const store = openStore(':memory:', { defaultVolume: 80 });
@@ -263,6 +299,28 @@ test('proxy pool applies the failure cooldown to blocked responses', async () =>
   });
 
   await (await pool.fetch('https://youtube.example/player')).text();
+  assert.deepEqual(pool.snapshot(), {
+    total: 1,
+    available: 0,
+    busy: 0,
+    coolingDown: 1,
+    failures: 1,
+  });
+  await pool.close();
+});
+
+test('proxy pool releases a failed response when its body is cancelled', async () => {
+  const pool = new ProxyPool({
+    proxies: ['192.0.2.13:8000:user:pass'],
+    cooldownMs: 1_000,
+    failureCooldownMs: 5_000,
+    agentFactory: (uri) => ({ uri, close: async () => {} }),
+    fetch: async () => new Response('blocked', { status: 403 }),
+  });
+
+  const response = await pool.fetch('https://youtube.example/oembed');
+  await response.body.cancel();
+
   assert.deepEqual(pool.snapshot(), {
     total: 1,
     available: 0,

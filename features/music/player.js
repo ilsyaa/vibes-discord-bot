@@ -9,7 +9,7 @@ import { EmbedBuilder } from 'discord.js';
 import { config } from '../../core/config.js';
 import { ProxyPool } from '../../core/proxy-pool.js';
 import { createStreamRelay } from '../../core/stream-relay.js';
-import { createNowPlayingEmbed, createPlayerButtons } from './ui.js';
+import { createNowPlayingEmbed, createPlayerButtons, formatSongLink, getSongTitle } from './ui.js';
 
 let distubeInstance = null;
 let youtubeProxyPool = null;
@@ -27,14 +27,15 @@ function recordProfileTrack(client, queue, song) {
   if (!song || typeof song !== 'object' || recordedProfileTracks.has(song)) return;
 
   const requester = song.member?.user || song.user || song.playlist?.member?.user;
-  if (!requester?.id || !song.url) return;
+  const title = getSongTitle(song, '');
+  if (!requester?.id || !song.url || !title) return;
 
   try {
     client.store?.recordUserTrack?.({
       userId: requester.id,
       guildId: queue.id,
       displayName: requester.globalName || requester.username || requester.tag || 'Listener',
-      title: song.name,
+      title,
       url: song.url,
       durationSeconds: song.duration,
     });
@@ -132,6 +133,20 @@ export async function warmYoutubePipeline(
   return false;
 }
 
+function hasSongTitle(song) {
+  return typeof song?.name === 'string' && song.name.trim().length > 0;
+}
+
+export function hydrateSongMetadata(song, info) {
+  const title = [
+    info?.videoDetails?.title,
+    info?.playerResponse?.videoDetails?.title,
+    info?.player_response?.videoDetails?.title,
+  ].find((value) => typeof value === 'string' && value.trim());
+  if (song && !hasSongTitle(song) && title) song.name = title.trim();
+  return song;
+}
+
 export async function initMusicPlayer(client) {
   let cookies;
   const cookiePath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../cookies.json');
@@ -217,8 +232,41 @@ export async function initMusicPlayer(client) {
   });
   youtubePlugin.getStreamURL = async (song) => {
     if (!song?.url) throw new Error('YouTube song URL missing');
-    const info = song.id ? resolvedInfos.get(song.id) : undefined;
+    let info = song.id ? resolvedInfos.get(song.id) : undefined;
+    if (!info) {
+      info = [...resolvedInfos.values()].find((candidate) => candidate.videoDetails?.url === song.url);
+    }
+    hydrateSongMetadata(song, info);
+
+    if (!hasSongTitle(song)) {
+      try {
+        info = await youtubePlugin.ytdl.getInfo(song.url);
+        hydrateSongMetadata(song, info);
+      } catch (error) {
+        console.warn('⚠️ Gagal mengambil ulang metadata judul YouTube:', error.message);
+      }
+    }
+
+    if (!hasSongTitle(song)) {
+      try {
+        const response = await fetchThroughProxy(
+          `https://www.youtube.com/oembed?url=${encodeURIComponent(song.url)}&format=json`,
+        );
+        if (!response.ok) {
+          await response.body?.cancel();
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const payload = await response.json();
+        if (typeof payload.title === 'string' && payload.title.trim()) {
+          song.name = payload.title.trim();
+        }
+      } catch (error) {
+        console.warn('⚠️ Gagal mengambil fallback judul YouTube:', error.message);
+      }
+    }
+
     if (song.id) resolvedInfos.delete(song.id);
+    if (info?.videoDetails?.id) resolvedInfos.delete(info.videoDetails.id);
     return youtubeStreamRelay.register({ url: song.url, info });
   };
   const distube = new DisTube(client, {
@@ -272,7 +320,7 @@ export async function initMusicPlayer(client) {
     const embed = new EmbedBuilder()
       .setColor(0x57F287)
       .setTitle('➕ Ditambahkan ke Antrean Playlist')
-      .setDescription(`**[${song.name}](${song.url})**`)
+      .setDescription(`**${formatSongLink(song)}**`)
       .setThumbnail(song.thumbnail || null)
       .addFields(
         { name: '⏱️ Durasi', value: song.formattedDuration || 'N/A', inline: true },

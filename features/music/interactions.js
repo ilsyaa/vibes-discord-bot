@@ -1,5 +1,5 @@
 import { getDisTube } from './player.js';
-import { clampVolume, formatRepeatMode, createNowPlayingEmbed, createPlayerButtons } from './ui.js';
+import { clampVolume, formatRepeatMode, createNowPlayingEmbed, createPlayerButtons, formatSongLink, getSongTitle } from './ui.js';
 
 export async function handleMusicButton(interaction, client) {
   if (!interaction.isButton()) return false;
@@ -33,7 +33,7 @@ export async function handleMusicButton(interaction, client) {
         try {
           const song = await queue.previous();
           await interaction.reply({
-            content: `⏮️ **${member.user.username}** memutar kembali lagu sebelumnya: **${song.name}**`,
+            content: `⏮️ **${member.user.username}** memutar kembali lagu sebelumnya: **${getSongTitle(song)}**`,
           });
         } catch (err) {
           await interaction.reply({
@@ -65,7 +65,7 @@ export async function handleMusicButton(interaction, client) {
         try {
           const song = await queue.skip();
           await interaction.reply({
-            content: `⏭️ **${member.user.username}** melewati lagu. Sekarang memutar: **${song.name}**`,
+            content: `⏭️ **${member.user.username}** melewati lagu. Sekarang memutar: **${getSongTitle(song)}**`,
           });
         } catch (err) {
           if (err.errorCode === 'NO_UP_NEXT' || err.message.includes('NO_UP_NEXT')) {
@@ -152,9 +152,9 @@ export async function handleMusicButton(interaction, client) {
         const currentSong = queue.songs[0];
         const upcomingSongs = queue.songs.slice(1, 6);
 
-        let text = `**Sedang Diputar:** [${currentSong.name}](${currentSong.url}) (${currentSong.formattedDuration})\n\n`;
+        let text = `**Sedang Diputar:** ${formatSongLink(currentSong)} (${currentSong.formattedDuration})\n\n`;
         if (upcomingSongs.length > 0) {
-          text += '**Berikutnya:**\n' + upcomingSongs.map((s, i) => `${i + 1}. [${s.name}](${s.url})`).join('\n');
+          text += '**Berikutnya:**\n' + upcomingSongs.map((s, i) => `${i + 1}. ${formatSongLink(s)}`).join('\n');
           if (queue.songs.length > 6) text += `\n*...dan ${queue.songs.length - 6} lagu lainnya.*`;
         } else {
           text += '*Tidak ada lagu lanjutan di antrean.*';
