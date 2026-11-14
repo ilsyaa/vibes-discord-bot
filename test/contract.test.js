@@ -86,7 +86,7 @@ test('profile activity persists, ranks, and rolls back invalid settings', () => 
   store.close();
 });
 
-test('personal liked songs and playlists persist with owner isolation', () => {
+test('shared liked songs and playlists persist with guild scope and attribution', () => {
   const store = openStore(':memory:');
   const songA = {
     songKey: 'video-a',
@@ -98,22 +98,29 @@ test('personal liked songs and playlists persist with owner isolation', () => {
   };
   const songB = { ...songA, songKey: 'video-b', url: 'https://youtube.example/b', title: 'Track B' };
 
-  assert.equal(store.toggleLikedSong('user-a', songA).liked, true);
-  assert.deepEqual(store.listLikedSongs('user-a'), [songA]);
-  assert.equal(store.toggleLikedSong('user-a', songA).liked, false);
-  assert.deepEqual(store.listLikedSongs('user-a'), []);
+  assert.equal(store.toggleLikedSong('guild-a', 'user-a', songA, 'User A').liked, true);
+  assert.deepEqual(store.listLikedSongs('guild-a')[0].likedBy, [{ userId: 'user-a', displayName: 'User A' }]);
+  assert.equal(store.toggleLikedSong('guild-a', 'user-b', songA, 'User B').liked, true);
+  assert.equal(store.listLikedSongs('guild-a')[0].likedBy.length, 2);
+  assert.equal(store.toggleLikedSong('guild-a', 'user-a', songA, 'User A').liked, false);
+  assert.deepEqual(store.listLikedSongs('guild-a')[0].likedBy, [{ userId: 'user-b', displayName: 'User B' }]);
+  assert.deepEqual(store.listLikedSongs('guild-b'), []);
 
-  const playlist = store.createPlaylist('user-a', 'Favorites');
-  assert.equal(store.addPlaylistSong('user-a', playlist.playlistId, songA).title, 'Track A');
-  assert.equal(store.addPlaylistSong('user-a', playlist.playlistId, songB).title, 'Track B');
-  assert.equal(store.addPlaylistSong('user-a', playlist.playlistId, songA).title, 'Track A');
-  assert.deepEqual(store.listPlaylistSongs('user-a', playlist.playlistId), [songA, songB]);
-  assert.deepEqual(store.listPlaylistSongs('user-b', playlist.playlistId), []);
-  assert.equal(store.removePlaylistSong('user-a', playlist.playlistId, 'video-a'), true);
-  assert.deepEqual(store.listPlaylistSongs('user-a', playlist.playlistId), [songB]);
-  assert.equal(store.deletePlaylist('user-b', playlist.playlistId), false);
-  assert.equal(store.deletePlaylist('user-a', playlist.playlistId), true);
-  assert.equal(store.getPlaylist('user-a', playlist.playlistId), null);
+  const playlist = store.createPlaylist('guild-a', 'user-a', 'Favorites', 'User A');
+  assert.equal(playlist.createdByName, 'User A');
+  assert.equal(store.addPlaylistSong('guild-a', playlist.playlistId, songA, 'user-a', 'User A').addedByName, 'User A');
+  assert.equal(store.addPlaylistSong('guild-a', playlist.playlistId, songB, 'user-b', 'User B').addedByName, 'User B');
+  assert.equal(store.addPlaylistSong('guild-a', playlist.playlistId, songA, 'user-b', 'User B').title, 'Track A');
+  assert.deepEqual(store.listPlaylistSongs('guild-a', playlist.playlistId).map(({ songKey, addedByName }) => ({ songKey, addedByName })), [
+    { songKey: 'video-a', addedByName: 'User A' },
+    { songKey: 'video-b', addedByName: 'User B' },
+  ]);
+  assert.deepEqual(store.listPlaylistSongs('guild-b', playlist.playlistId), []);
+  assert.equal(store.removePlaylistSong('guild-a', playlist.playlistId, 'video-a'), true);
+  assert.deepEqual(store.listPlaylistSongs('guild-a', playlist.playlistId).map((song) => song.songKey), ['video-b']);
+  assert.equal(store.deletePlaylist('guild-b', playlist.playlistId), false);
+  assert.equal(store.deletePlaylist('guild-a', playlist.playlistId), true);
+  assert.equal(store.getPlaylist('guild-a', playlist.playlistId), null);
   store.close();
 });
 

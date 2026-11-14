@@ -391,65 +391,113 @@ export class Store {
     this.database.prepare("DELETE FROM oauth_states WHERE julianday(expires_at) <= julianday('now')").run();
   }
 
-  toggleLikedSong(userId, songRecord) {
+  toggleLikedSong(guildId, userId, songRecord, displayName) {
+    const scopeId = normalizeId(guildId, 'guildId', 100);
     const ownerId = normalizeId(userId, 'userId', 100);
+    const name = normalizeId(displayName, 'displayName', 200);
     const song = normalizeSong(songRecord);
     return this.withTransaction(() => {
       const existing = this.database
-        .prepare('SELECT 1 FROM liked_songs WHERE user_id = ? AND song_key = ?')
-        .get(ownerId, song.songKey);
+        .prepare('SELECT 1 FROM shared_liked_songs WHERE guild_id = ? AND user_id = ? AND song_key = ?')
+        .get(scopeId, ownerId, song.songKey);
+      let liked;
       if (existing) {
         this.database
-          .prepare('DELETE FROM liked_songs WHERE user_id = ? AND song_key = ?')
-          .run(ownerId, song.songKey);
-        return { liked: false, song };
+          .prepare('DELETE FROM shared_liked_songs WHERE guild_id = ? AND user_id = ? AND song_key = ?')
+          .run(scopeId, ownerId, song.songKey);
+        liked = false;
+      } else {
+        this.database
+          .prepare(`
+            INSERT INTO shared_liked_songs
+              (guild_id, user_id, display_name, song_key, url, title, duration_seconds, thumbnail, uploader)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `)
+          .run(
+            scopeId,
+            ownerId,
+            name,
+            song.songKey,
+            song.url,
+            song.title,
+            song.durationSeconds,
+            song.thumbnail,
+            song.uploader,
+          );
+        liked = true;
       }
-      this.database
+      const likedBy = this.database
         .prepare(`
-          INSERT INTO liked_songs
-            (user_id, song_key, url, title, duration_seconds, thumbnail, uploader)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
+          SELECT user_id, display_name
+          FROM shared_liked_songs
+          WHERE guild_id = ? AND song_key = ?
+          ORDER BY created_at DESC, rowid DESC
         `)
-        .run(ownerId, song.songKey, song.url, song.title, song.durationSeconds, song.thumbnail, song.uploader);
-      return { liked: true, song };
+        .all(scopeId, song.songKey)
+        .map((row) => ({ userId: row.user_id, displayName: row.display_name }));
+      return { liked, song, likedBy };
     });
   }
 
-  listLikedSongs(userId, { limit = 100 } = {}) {
-    const ownerId = normalizeId(userId, 'userId', 100);
+  listLikedSongs(guildId, { limit = 100 } = {}) {
+    const scopeId = normalizeId(guildId, 'guildId', 100);
     const boundedLimit = normalizeLimit(limit, 100);
-    return this.database
+    const rows = this.database
       .prepare(`
-        SELECT song_key, url, title, duration_seconds, thumbnail, uploader
-        FROM liked_songs
-        WHERE user_id = ?
+        SELECT guild_id, song_key, url, title, duration_seconds, thumbnail, uploader, created_at, rowid
+        FROM shared_liked_songs
+        WHERE guild_id = ?
         ORDER BY created_at DESC, rowid DESC
-        LIMIT ?
       `)
-      .all(ownerId, boundedLimit)
-      .map(normalizeSongRow);
+      .all(scopeId);
+    const songs = [];
+    const seen = new Set();
+    for (const row of rows) {
+      if (seen.has(row.song_key)) continue;
+      seen.add(row.song_key);
+      const likedBy = this.database
+        .prepare(`
+          SELECT user_id, display_name
+          FROM shared_liked_songs
+          WHERE guild_id = ? AND song_key = ?
+          ORDER BY created_at DESC, rowid DESC
+        `)
+        .all(scopeId, row.song_key)
+        .map((liker) => ({ userId: liker.user_id, displayName: liker.display_name }));
+      songs.push({ ...normalizeSongRow(row), likedBy });
+      if (songs.length >= boundedLimit) break;
+    }
+    return songs;
   }
 
-  removeLikedSong(userId, songKey) {
+  removeLikedSong(guildId, userId, songKey) {
+    const scopeId = normalizeId(guildId, 'guildId', 100);
     const ownerId = normalizeId(userId, 'userId', 100);
     const key = normalizeId(songKey, 'songKey', 512);
     return this.database
-      .prepare('DELETE FROM liked_songs WHERE user_id = ? AND song_key = ?')
-      .run(ownerId, key).changes > 0;
+      .prepare('DELETE FROM shared_liked_songs WHERE guild_id = ? AND user_id = ? AND song_key = ?')
+      .run(scopeId, ownerId, key).changes > 0;
   }
 
-  createPlaylist(userId, name) {
+  createPlaylist(guildId, userId, name, displayName) {
+    const scopeId = normalizeId(guildId, 'guildId', 100);
     const ownerId = normalizeId(userId, 'userId', 100);
     const playlistName = normalizeName(name);
+    const creatorName = normalizeId(displayName, 'displayName', 200);
     return this.withTransaction(() => {
       try {
         const result = this.database
-          .prepare('INSERT INTO playlists (user_id, name) VALUES (?, ?)')
-          .run(ownerId, playlistName);
+          .prepare(`
+            INSERT INTO shared_playlists (guild_id, name, created_by, created_by_name)
+            VALUES (?, ?, ?, ?)
+          `)
+          .run(scopeId, playlistName, ownerId, creatorName);
         return {
           playlistId: Number(result.lastInsertRowid),
           name: playlistName,
           songCount: 0,
+          createdBy: ownerId,
+          createdByName: creatorName,
         };
       } catch (error) {
         if (String(error?.message).includes('UNIQUE constraint failed')) {
@@ -460,71 +508,86 @@ export class Store {
     });
   }
 
-  listPlaylists(userId) {
-    const ownerId = normalizeId(userId, 'userId', 100);
+  listPlaylists(guildId) {
+    const scopeId = normalizeId(guildId, 'guildId', 100);
     return this.database
       .prepare(`
-        SELECT p.playlist_id, p.name, p.created_at, COUNT(s.song_key) AS song_count
-        FROM playlists p
-        LEFT JOIN playlist_songs s ON s.playlist_id = p.playlist_id
-        WHERE p.user_id = ?
+        SELECT p.playlist_id, p.name, p.created_at, p.created_by, p.created_by_name,
+               COUNT(s.song_key) AS song_count
+        FROM shared_playlists p
+        LEFT JOIN shared_playlist_songs s ON s.playlist_id = p.playlist_id
+        WHERE p.guild_id = ?
         GROUP BY p.playlist_id
         ORDER BY p.created_at DESC, p.playlist_id DESC
       `)
-      .all(ownerId)
+      .all(scopeId)
       .map(normalizePlaylistRow);
   }
 
-  getPlaylist(userId, playlistId) {
-    const ownerId = normalizeId(userId, 'userId', 100);
+  getPlaylist(guildId, playlistId) {
+    const scopeId = normalizeId(guildId, 'guildId', 100);
     const id = normalizePlaylistId(playlistId);
     const row = this.database
       .prepare(`
-        SELECT p.playlist_id, p.name, p.created_at, COUNT(s.song_key) AS song_count
-        FROM playlists p
-        LEFT JOIN playlist_songs s ON s.playlist_id = p.playlist_id
-        WHERE p.user_id = ? AND p.playlist_id = ?
+        SELECT p.playlist_id, p.name, p.created_at, p.created_by, p.created_by_name,
+               COUNT(s.song_key) AS song_count
+        FROM shared_playlists p
+        LEFT JOIN shared_playlist_songs s ON s.playlist_id = p.playlist_id
+        WHERE p.guild_id = ? AND p.playlist_id = ?
         GROUP BY p.playlist_id
       `)
-      .get(ownerId, id);
+      .get(scopeId, id);
     return row ? normalizePlaylistRow(row) : null;
   }
 
-  addPlaylistSong(userId, playlistId, songRecord) {
-    const ownerId = normalizeId(userId, 'userId', 100);
+  addPlaylistSong(guildId, playlistId, songRecord, userId, displayName) {
+    const scopeId = normalizeId(guildId, 'guildId', 100);
     const id = normalizePlaylistId(playlistId);
     const song = normalizeSong(songRecord);
+    const ownerId = normalizeId(userId, 'userId', 100);
+    const adderName = normalizeId(displayName, 'displayName', 200);
     return this.withTransaction(() => {
-      if (!this.getPlaylist(ownerId, id)) throw new Error('playlist not found');
+      if (!this.getPlaylist(scopeId, id)) throw new Error('playlist not found');
       const existing = this.database
         .prepare(`
-          SELECT song_key, url, title, duration_seconds, thumbnail, uploader
-          FROM playlist_songs WHERE playlist_id = ? AND song_key = ?
+          SELECT song_key, url, title, duration_seconds, thumbnail, uploader, added_by, added_by_name
+          FROM shared_playlist_songs WHERE playlist_id = ? AND song_key = ?
         `)
         .get(id, song.songKey);
       if (existing) return normalizeSongRow(existing);
       const position = this.database
-        .prepare('SELECT COALESCE(MAX(position), -1) + 1 AS next_position FROM playlist_songs WHERE playlist_id = ?')
+        .prepare('SELECT COALESCE(MAX(position), -1) + 1 AS next_position FROM shared_playlist_songs WHERE playlist_id = ?')
         .get(id).next_position;
       this.database
         .prepare(`
-          INSERT INTO playlist_songs
-            (playlist_id, song_key, url, title, duration_seconds, thumbnail, uploader, position)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO shared_playlist_songs
+            (playlist_id, song_key, url, title, duration_seconds, thumbnail, uploader, added_by, added_by_name, position)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `)
-        .run(id, song.songKey, song.url, song.title, song.durationSeconds, song.thumbnail, song.uploader, position);
-      return song;
+        .run(
+          id,
+          song.songKey,
+          song.url,
+          song.title,
+          song.durationSeconds,
+          song.thumbnail,
+          song.uploader,
+          ownerId,
+          adderName,
+          position,
+        );
+      return { ...song, addedBy: ownerId, addedByName: adderName };
     });
   }
 
-  listPlaylistSongs(userId, playlistId) {
-    const ownerId = normalizeId(userId, 'userId', 100);
+  listPlaylistSongs(guildId, playlistId) {
+    const scopeId = normalizeId(guildId, 'guildId', 100);
     const id = normalizePlaylistId(playlistId);
-    if (!this.getPlaylist(ownerId, id)) return [];
+    if (!this.getPlaylist(scopeId, id)) return [];
     return this.database
       .prepare(`
-        SELECT song_key, url, title, duration_seconds, thumbnail, uploader
-        FROM playlist_songs
+        SELECT song_key, url, title, duration_seconds, thumbnail, uploader, added_by, added_by_name
+        FROM shared_playlist_songs
         WHERE playlist_id = ?
         ORDER BY position ASC
       `)
@@ -532,23 +595,23 @@ export class Store {
       .map(normalizeSongRow);
   }
 
-  removePlaylistSong(userId, playlistId, songKey) {
-    const ownerId = normalizeId(userId, 'userId', 100);
+  removePlaylistSong(guildId, playlistId, songKey) {
+    const scopeId = normalizeId(guildId, 'guildId', 100);
     const id = normalizePlaylistId(playlistId);
     const key = normalizeId(songKey, 'songKey', 512);
     return this.withTransaction(() => {
-      if (!this.getPlaylist(ownerId, id)) return false;
+      if (!this.getPlaylist(scopeId, id)) return false;
       const result = this.database
-        .prepare('DELETE FROM playlist_songs WHERE playlist_id = ? AND song_key = ?')
+        .prepare('DELETE FROM shared_playlist_songs WHERE playlist_id = ? AND song_key = ?')
         .run(id, key);
       if (!result.changes) return false;
       this.database
         .prepare(`
-          UPDATE playlist_songs
+          UPDATE shared_playlist_songs
           SET position = (
-            SELECT COUNT(*) FROM playlist_songs prior
-            WHERE prior.playlist_id = playlist_songs.playlist_id
-              AND prior.position < playlist_songs.position
+            SELECT COUNT(*) FROM shared_playlist_songs prior
+            WHERE prior.playlist_id = shared_playlist_songs.playlist_id
+              AND prior.position < shared_playlist_songs.position
           )
           WHERE playlist_id = ?
         `)
@@ -557,12 +620,12 @@ export class Store {
     });
   }
 
-  deletePlaylist(userId, playlistId) {
-    const ownerId = normalizeId(userId, 'userId', 100);
+  deletePlaylist(guildId, playlistId) {
+    const scopeId = normalizeId(guildId, 'guildId', 100);
     const id = normalizePlaylistId(playlistId);
     return this.database
-      .prepare('DELETE FROM playlists WHERE user_id = ? AND playlist_id = ?')
-      .run(ownerId, id).changes > 0;
+      .prepare('DELETE FROM shared_playlists WHERE guild_id = ? AND playlist_id = ?')
+      .run(scopeId, id).changes > 0;
   }
 
   close() {
@@ -665,7 +728,7 @@ function normalizeSong(songRecord) {
 }
 
 function normalizeSongRow(row) {
-  return {
+  const song = {
     songKey: row.song_key,
     url: row.url,
     title: row.title,
@@ -673,6 +736,11 @@ function normalizeSongRow(row) {
     thumbnail: row.thumbnail,
     uploader: row.uploader,
   };
+  if (row.added_by !== undefined) {
+    song.addedBy = row.added_by;
+    song.addedByName = row.added_by_name;
+  }
+  return song;
 }
 
 function normalizePlaylistRow(row) {
@@ -680,6 +748,8 @@ function normalizePlaylistRow(row) {
     playlistId: Number(row.playlist_id),
     name: row.name,
     songCount: Number(row.song_count),
+    createdBy: row.created_by,
+    createdByName: row.created_by_name,
     createdAt: row.created_at,
   };
 }

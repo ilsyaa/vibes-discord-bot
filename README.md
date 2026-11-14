@@ -66,7 +66,7 @@ vibes-discord/
   - `loop`: Mode repeat (Off, Song, Queue).
   - `volume`: Atur volume (0% - 100%; 0 = mute).
   - `autoplay`: Ambil satu rekomendasi terkait dari YouTube ketika antrean habis. Nonaktif secara default.
-- **Personal Music Library**: Tombol ❤️ Like dan 🎶 Playlist pada player; koleksi liked songs dan playlist pribadi tersimpan di SQLite.
+- **Shared Music Library**: Tombol ❤️ Like dan 🎶 Playlist pada player; liked songs dan playlist dibagi bersama satu server, dengan atribusi siapa yang like, membuat playlist, atau menambahkan lagu.
 
 ## 👤 Profile Musik
 
@@ -88,17 +88,17 @@ Data disimpan sebagai aggregate activity. URL media tidak disimpan; track identi
 | Slash Command | Prefix Command | Deskripsi |
 | :--- | :--- | :--- |
 | `/play <query>` | `!play <query>` atau `!p <query>` | Putar link video, playlist, atau kata kunci judul YouTube |
-| `/library` | `!library`, `!lib` | Buka card library untuk liked songs dan playlist |
-| `/like` | `!like`, `!love`, `!favorite` | Toggle lagu yang sedang diputar ke koleksi liked songs |
-| `/liked list|play|shuffle|remove` | `!liked list|play|shuffle|remove <song-key>` | Lihat, putar, acak, atau hapus liked songs |
-| `/playlist list` | `!playlist list` | Lihat playlist pribadi |
-| `/playlist create <name>` | `!playlist create <name>` | Buat playlist pribadi |
-| `/playlist add <id>` | `!playlist add <id>` | Tambahkan lagu yang sedang diputar |
-| `/playlist show <id>` | `!playlist show <id>` | Lihat isi playlist |
+| `/library` | `!library`, `!lib` | Buka card shared library untuk liked songs dan playlist |
+| `/like` | `!like`, `!love`, `!favorite` | Toggle lagu yang sedang diputar ke liked songs server |
+| `/liked list|play|shuffle|remove` | `!liked list|play|shuffle|remove <song-key>` | Lihat, putar, acak, atau hapus like milikmu |
+| `/playlist list` | `!playlist list` | Lihat shared playlist server |
+| `/playlist create <name>` | `!playlist create <name>` | Buat shared playlist |
+| `/playlist add <id> [song-key]` | `!playlist add <id> [song-key]` | Tambahkan lagu aktif atau liked song anggota lain |
+| `/playlist show <id>` | `!playlist show <id>` | Lihat isi playlist dan siapa yang menambahkan lagu |
 | `/playlist play <id>` | `!playlist play <id>` | Putar seluruh playlist |
 | `/playlist shuffle <id>` | `!playlist shuffle <id>` | Acak lalu putar playlist |
-| `/playlist remove <id> <song-key>` | `!playlist remove <id> <song-key>` | Hapus lagu dari playlist |
-| `/playlist delete <id>` | `!playlist delete <id>` | Hapus playlist beserta isinya |
+| `/playlist remove <id> <song-key>` | `!playlist remove <id> <song-key>` | Hapus lagu dari shared playlist |
+| `/playlist delete <id>` | `!playlist delete <id>` | Hapus shared playlist beserta isinya |
 | `/skip` | `!skip`, `!next`, `!s` | Lewati lagu yang sedang diputar |
 | `/prev` | `!prev`, `!previous`, `!back` | Putar kembali lagu sebelumnya |
 | `/queue` | `!queue`, `!q`, `!list` | Lihat daftar antrean musik |

@@ -162,4 +162,60 @@ export const migrations = [
         ON playlist_songs (playlist_id, position);
     `,
   },
+  {
+    version: 6,
+    name: 'shared-guild-music-library',
+    sql: `
+      CREATE TABLE IF NOT EXISTS shared_liked_songs (
+        guild_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        song_key TEXT NOT NULL,
+        url TEXT NOT NULL,
+        title TEXT NOT NULL,
+        duration_seconds INTEGER NOT NULL DEFAULT 0,
+        thumbnail TEXT NOT NULL DEFAULT '',
+        uploader TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (guild_id, user_id, song_key)
+      ) STRICT;
+
+      CREATE INDEX IF NOT EXISTS shared_liked_songs_activity_idx
+        ON shared_liked_songs (guild_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS shared_liked_songs_song_idx
+        ON shared_liked_songs (guild_id, song_key, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS shared_playlists (
+        playlist_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        guild_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        created_by_name TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (guild_id, name)
+      ) STRICT;
+
+      CREATE INDEX IF NOT EXISTS shared_playlists_guild_idx
+        ON shared_playlists (guild_id, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS shared_playlist_songs (
+        playlist_id INTEGER NOT NULL,
+        song_key TEXT NOT NULL,
+        url TEXT NOT NULL,
+        title TEXT NOT NULL,
+        duration_seconds INTEGER NOT NULL DEFAULT 0,
+        thumbnail TEXT NOT NULL DEFAULT '',
+        uploader TEXT NOT NULL DEFAULT '',
+        added_by TEXT NOT NULL,
+        added_by_name TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (playlist_id, song_key),
+        FOREIGN KEY (playlist_id) REFERENCES shared_playlists (playlist_id) ON DELETE CASCADE
+      ) STRICT;
+
+      CREATE INDEX IF NOT EXISTS shared_playlist_songs_position_idx
+        ON shared_playlist_songs (playlist_id, position);
+    `,
+  },
 ];

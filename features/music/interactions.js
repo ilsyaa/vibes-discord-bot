@@ -38,7 +38,12 @@ export async function handleMusicButton(interaction, client) {
   try {
     switch (customId) {
       case 'music_like': {
-        const result = await saveCurrentSongToLiked(client, guildId, member.user.id);
+        const result = await saveCurrentSongToLiked(
+          client,
+          guildId,
+          member.user.id,
+          member.user.globalName || member.user.username,
+        );
         await interaction.reply({
           content: result.liked
             ? `❤️ **${result.song.title}** ditambahkan ke lagu yang disukai.`
@@ -49,7 +54,7 @@ export async function handleMusicButton(interaction, client) {
       }
 
       case 'music_playlist': {
-        const playlists = client.store?.listPlaylists?.(member.user.id) || [];
+        const playlists = client.store?.listPlaylists?.(guildId) || [];
         if (!playlists.length) {
           await interaction.reply({
             content: '❌ Belum ada playlist. Buat playlist dengan `/playlist create` terlebih dahulu.',
