@@ -1,5 +1,7 @@
 import {
   ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   EmbedBuilder,
   SlashCommandBuilder,
   StringSelectMenuBuilder,
@@ -80,6 +82,188 @@ export async function handlePlaylistSelect(interaction, client) {
   }
   return true;
 }
+export async function handleLibraryInteraction(interaction, client) {
+  const customId = interaction.customId || '';
+  if (!customId.startsWith('library_')) return false;
+
+  const userId = validateUserId(interaction.user?.id);
+  const store = client.store;
+  try {
+    if (interaction.isStringSelectMenu?.()) {
+      if (customId === 'library_playlist_select') {
+        await showPlaylistPanel(interaction, store, userId, interaction.values?.[0]);
+      } else if (customId === 'library_liked_remove_select') {
+        const songs = store.listLikedSongs(userId);
+        const song = songs[Number(interaction.values?.[0])];
+        if (!song) throw new Error('Lagu tidak ditemukan.');
+        store.removeLikedSong(userId, song.songKey);
+        await showLikedPanel(interaction, store, userId);
+      } else if (customId.startsWith('library_playlist_remove_select:')) {
+        const playlistId = customId.split(':')[1];
+        const songs = store.listPlaylistSongs(userId, validatePlaylistId(playlistId));
+        const song = songs[Number(interaction.values?.[0])];
+        if (!song) throw new Error('Lagu tidak ditemukan.');
+        store.removePlaylistSong(userId, validatePlaylistId(playlistId), song.songKey);
+        await showPlaylistPanel(interaction, store, userId, playlistId);
+      } else {
+        return false;
+      }
+      return true;
+    }
+
+    if (!interaction.isButton()) return false;
+    if (customId === 'library_home') {
+      await interaction.update(libraryHomePayload(store, userId));
+    } else if (customId === 'library_liked') {
+      await showLikedPanel(interaction, store, userId);
+    } else if (customId === 'library_play_liked' || customId === 'library_shuffle_liked') {
+      const songs = store.listLikedSongs(userId);
+      if (!songs.length) throw new Error('Koleksi lagu yang disukai masih kosong.');
+      const selected = customId === 'library_shuffle_liked' ? shuffleSongs(songs) : songs;
+      await playCollection(interaction, selected, client, true);
+    } else if (customId === 'library_liked_remove') {
+      const songs = store.listLikedSongs(userId);
+      await interaction.update({
+        embeds: [buildLikedEmbed(songs)],
+        components: [createRemoveSongMenu('library_liked_remove_select', songs), libraryBackButtons()],
+      });
+    } else if (customId === 'library_playlists') {
+      await showPlaylistList(interaction, store, userId);
+    } else if (customId.startsWith('library_playlist_play:') || customId.startsWith('library_playlist_shuffle:')) {
+      const playlistId = validatePlaylistId(customId.split(':')[1]);
+      const songs = store.listPlaylistSongs(userId, playlistId);
+      if (!songs.length) throw new Error('Playlist ini masih kosong.');
+      const selected = customId.startsWith('library_playlist_shuffle:')
+        ? shuffleSongs(songs)
+        : songs;
+      await playCollection(interaction, selected, client, true);
+    } else if (customId.startsWith('library_playlist_remove:')) {
+      const playlistId = validatePlaylistId(customId.split(':')[1]);
+      const playlist = store.getPlaylist(userId, playlistId);
+      if (!playlist) throw new Error('Playlist tidak ditemukan.');
+      const songs = store.listPlaylistSongs(userId, playlistId);
+      await interaction.update({
+        embeds: [buildPlaylistSongsEmbed(playlist, songs)],
+        components: [createRemoveSongMenu(`library_playlist_remove_select:${playlistId}`, songs), playlistBackButtons(playlistId)],
+      });
+    } else if (customId.startsWith('library_playlist_delete:')) {
+      store.deletePlaylist(userId, validatePlaylistId(customId.split(':')[1]));
+      await interaction.update(libraryHomePayload(store, userId));
+    } else {
+      return false;
+    }
+  } catch (error) {
+    const payload = { content: `⚠️ ${friendlyError(error)}`, components: [] };
+    if (interaction.deferred || interaction.replied) await interaction.editReply(payload).catch(() => {});
+    else await interaction.update(payload).catch(() => {});
+  }
+  return true;
+}
+
+async function showLibraryCard(source, client, ephemeral) {
+  const userId = validateUserId(source.user?.id || source.author?.id);
+  return reply(source, { ...libraryHomePayload(client.store, userId), ephemeral });
+}
+
+function libraryHomePayload(store, userId) {
+  const liked = store.listLikedSongs(userId);
+  const playlists = store.listPlaylists(userId);
+  return {
+    embeds: [new EmbedBuilder()
+      .setColor(0x5865F2)
+      .setTitle('🎵 Music Library')
+      .setDescription('Kelola lagu disukai dan playlist pribadi dari card ini.')
+      .addFields(
+        { name: '❤️ Liked Songs', value: `${liked.length} lagu`, inline: true },
+        { name: '🎶 Playlist', value: `${playlists.length} playlist`, inline: true },
+      )],
+    components: [libraryHomeButtons()],
+  };
+}
+
+function libraryHomeButtons() {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('library_liked').setLabel('Liked Songs').setEmoji('❤️').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('library_play_liked').setLabel('Play Liked').setEmoji('▶️').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('library_shuffle_liked').setLabel('Shuffle Liked').setEmoji('🔀').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('library_playlists').setLabel('Playlists').setEmoji('🎶').setStyle(ButtonStyle.Secondary),
+  );
+}
+
+async function showLikedPanel(interaction, store, userId) {
+  const songs = store.listLikedSongs(userId);
+  await interaction.update({
+    embeds: [buildLikedEmbed(songs)],
+    components: [libraryLikedButtons(), libraryBackButtons()],
+  });
+}
+
+function libraryLikedButtons() {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('library_play_liked').setLabel('Play').setEmoji('▶️').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('library_shuffle_liked').setLabel('Shuffle').setEmoji('🔀').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('library_liked_remove').setLabel('Remove').setEmoji('🗑️').setStyle(ButtonStyle.Danger),
+  );
+}
+
+async function showPlaylistList(interaction, store, userId) {
+  const playlists = store.listPlaylists(userId);
+  await interaction.update({
+    embeds: [buildPlaylistEmbed(playlists)],
+    components: playlists.length
+      ? [createLibraryPlaylistMenu(playlists), libraryBackButtons()]
+      : [libraryBackButtons()],
+  });
+}
+
+async function showPlaylistPanel(interaction, store, userId, playlistId) {
+  const id = validatePlaylistId(playlistId);
+  const playlist = store.getPlaylist(userId, id);
+  if (!playlist) throw new Error('Playlist tidak ditemukan.');
+  await interaction.update({
+    embeds: [buildPlaylistSongsEmbed(playlist, store.listPlaylistSongs(userId, id))],
+    components: [playlistActionButtons(id), libraryBackButtons()],
+  });
+}
+
+function createLibraryPlaylistMenu(playlists) {
+  return new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId('library_playlist_select')
+      .setPlaceholder('Pilih playlist')
+      .addOptions(playlists.slice(0, 25).map((playlist) => ({
+        label: `${playlist.name} (${playlist.songCount || 0})`.slice(0, 100),
+        value: String(playlist.playlistId),
+      }))),
+  );
+}
+
+function createRemoveSongMenu(customId, songs) {
+  return new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId(customId)
+      .setPlaceholder('Pilih lagu yang akan dihapus')
+      .addOptions(songs.slice(0, 25).map((song, index) => ({
+        label: getSongTitle(song).slice(0, 100),
+        value: String(index),
+      }))),
+  );
+}
+
+function playlistActionButtons(playlistId) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`library_playlist_play:${playlistId}`).setLabel('Play').setEmoji('▶️').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(`library_playlist_shuffle:${playlistId}`).setLabel('Shuffle').setEmoji('🔀').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`library_playlist_remove:${playlistId}`).setLabel('Remove').setEmoji('🗑️').setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId(`library_playlist_delete:${playlistId}`).setLabel('Delete').setEmoji('❌').setStyle(ButtonStyle.Danger),
+  );
+}
+
+function libraryBackButtons() {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('library_home').setLabel('Library').setEmoji('📚').setStyle(ButtonStyle.Secondary),
+  );
+}
 
 export const likeCommand = {
   data: new SlashCommandBuilder().setName('like').setDescription('Simpan atau hapus lagu yang sedang diputar dari lagu disukai'),
@@ -140,6 +324,16 @@ export const playlistCommand = {
       songKey: value,
       name: args.slice(1).join(' '),
     }, false);
+  },
+};
+export const libraryCommand = {
+  data: new SlashCommandBuilder().setName('library').setDescription('Buka library musik pribadi'),
+  aliases: ['lib'],
+  async executeSlash(interaction, client) {
+    return showLibraryCard(interaction, client, true);
+  },
+  async executePrefix(message, _args, client) {
+    return showLibraryCard(message, client, false);
   },
 };
 
@@ -229,16 +423,16 @@ async function playCollection(source, songs, client, ephemeral) {
   const textChannel = source.channel;
   const member = source.member;
   const loading = `🔍 Memproses ${songs.length} lagu dari koleksi pribadi...`;
-  if (source.isChatInputCommand?.()) await source.deferReply({ ephemeral });
-  else {
-    const message = await source.reply(loading);
+  const isInteraction = source.isChatInputCommand?.() || source.isButton?.();
+  if (isInteraction) {
+    if (!source.deferred && !source.replied) await source.deferReply({ ephemeral });
+    await source.editReply({ content: loading });
     try {
       for (const song of songs) await distube.play(voiceChannel, song.url, { textChannel, member });
-      await message.edit(`✅ Menambahkan ${songs.length} lagu ke antrean.`);
+      return source.editReply({ content: `✅ Menambahkan ${songs.length} lagu ke antrean.` });
     } catch (error) {
-      await message.edit(`⚠️ Gagal memutar koleksi: ${friendlyError(error)}`).catch(() => {});
+      return source.editReply({ content: `⚠️ Gagal memutar koleksi: ${friendlyError(error)}` });
     }
-    return message;
   }
 
   try {

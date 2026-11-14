@@ -15,7 +15,7 @@ import {
   autoplayCommand,
   diagnoseCommand,
 } from './commands.js';
-import { likeCommand, likedCommand, playlistCommand } from './library.js';
+import { likeCommand, likedCommand, playlistCommand, libraryCommand } from './library.js';
 export default {
   name: 'Music',
   description: 'Pemutar musik YouTube performa tinggi berbasis Stream Mode FFmpeg',
@@ -46,5 +46,6 @@ export default {
     likeCommand,
     likedCommand,
     playlistCommand,
+    libraryCommand,
   ],
 };

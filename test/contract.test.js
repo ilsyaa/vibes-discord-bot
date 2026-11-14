@@ -28,6 +28,7 @@ import {
   likedCommand,
   normalizeSong,
   playlistCommand,
+  libraryCommand,
 } from '../features/music/library.js';
 
 
@@ -236,6 +237,7 @@ test('personal music commands and save menu expose the library UX', () => {
   assert.equal(likeCommand.data.name, 'like');
   assert.equal(likedCommand.data.name, 'liked');
   assert.equal(playlistCommand.data.name, 'playlist');
+  assert.equal(libraryCommand.data.name, 'library');
   assert.equal(normalizeSong({
     id: 'video-a',
     url: 'https://youtube.example/a',

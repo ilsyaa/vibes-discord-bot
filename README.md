@@ -88,6 +88,7 @@ Data disimpan sebagai aggregate activity. URL media tidak disimpan; track identi
 | Slash Command | Prefix Command | Deskripsi |
 | :--- | :--- | :--- |
 | `/play <query>` | `!play <query>` atau `!p <query>` | Putar link video, playlist, atau kata kunci judul YouTube |
+| `/library` | `!library`, `!lib` | Buka card library untuk liked songs dan playlist |
 | `/like` | `!like`, `!love`, `!favorite` | Toggle lagu yang sedang diputar ke koleksi liked songs |
 | `/liked list|play|shuffle|remove` | `!liked list|play|shuffle|remove <song-key>` | Lihat, putar, acak, atau hapus liked songs |
 | `/playlist list` | `!playlist list` | Lihat playlist pribadi |

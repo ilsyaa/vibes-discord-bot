@@ -2,14 +2,15 @@ import { getDisTube, skipWithAutoplay, ensureSongMetadata } from './player.js';
 import { clampVolume, formatRepeatMode, createNowPlayingEmbed, createPlayerButtons, formatSongLink, getSongTitle } from './ui.js';
 import {
   createPlaylistSelectMenu,
+  handleLibraryInteraction,
   handlePlaylistSelect,
   saveCurrentSongToLiked,
 } from './library.js';
 
 export async function handleMusicButton(interaction, client) {
-  if (interaction.isStringSelectMenu?.()) {
-    return handlePlaylistSelect(interaction, client);
-  }
+  const handledLibrary = await handleLibraryInteraction(interaction, client);
+  if (handledLibrary) return true;
+  if (interaction.isStringSelectMenu?.()) return handlePlaylistSelect(interaction, client);
   if (!interaction.isButton()) return false;
   const { customId, guildId, member } = interaction;
   if (!customId.startsWith('music_')) return false;
