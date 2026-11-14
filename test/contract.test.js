@@ -1,8 +1,14 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
+import { validateRuntimeConfig } from '../core/config.js';
 import { Readable } from 'node:stream';
 import { openStore } from '../core/storage/database.js';
 import { createDashboardServer } from '../dashboard/server.js';
+import { backupDatabase } from '../core/backup.js';
+import { helpCommand } from '../features/general/commands.js';
 import { renderProfileCard } from '../features/general/profile-card.js';
 import { autoplayCommand } from '../features/music/commands.js';
 import { adjustVolume } from '../features/music/interactions.js';
@@ -123,6 +129,46 @@ test('shared liked songs and playlists persist with guild scope and attribution'
   assert.equal(store.getPlaylist('guild-a', playlist.playlistId), null);
   store.close();
 });
+test('database backups pass integrity checks and rotate old snapshots', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vibes-backup-'));
+  const sourcePath = path.join(root, 'source.sqlite');
+  const backupDir = path.join(root, 'backups');
+  const store = openStore(sourcePath);
+  store.ensureGuildSettings('guild-a');
+  store.close();
+
+  try {
+    const first = await backupDatabase({ sourcePath, backupDir, retention: 1 });
+    assert.equal(fs.existsSync(first.path), true);
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    const second = await backupDatabase({ sourcePath, backupDir, retention: 1 });
+    assert.equal(fs.existsSync(second.path), true);
+    assert.equal(fs.readdirSync(backupDir).filter((name) => name.endsWith('.sqlite')).length, 1);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+test('runtime validation rejects unsafe dashboard configuration', () => {
+  const base = {
+    token: 'token',
+    clientId: 'client',
+    dashboardEnabled: true,
+    dashboardPublicUrl: 'http://public.example',
+    dashboardClientId: 'client',
+    dashboardClientSecret: 'secret',
+    dashboardSessionSecret: 'a'.repeat(32),
+  };
+  assert.throws(
+    () => validateRuntimeConfig({ currentConfig: base }),
+    /DASHBOARD_PUBLIC_URL harus memakai HTTPS/u,
+  );
+  assert.throws(
+    () => validateRuntimeConfig({
+      currentConfig: { ...base, dashboardPublicUrl: 'https://dashboard.example', dashboardSessionSecret: 'short' },
+    }),
+    /DASHBOARD_SESSION_SECRET/u,
+  );
+});
 
 test('dashboard binds OAuth callback to the initiating browser', async () => {
   const store = openStore(':memory:');
@@ -140,6 +186,14 @@ test('dashboard binds OAuth callback to the initiating browser', async () => {
 
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const port = server.address().port;
+  const health = await fetch(`http://127.0.0.1:${port}/health`);
+  assert.deepEqual(await health.json(), { ok: true });
+  const malformedCookie = await fetch(`http://127.0.0.1:${port}/api/me`, {
+    headers: { cookie: 'vibes_session=%' },
+  });
+  assert.equal(malformedCookie.status, 401);
+  const logout = await fetch(`http://127.0.0.1:${port}/auth/logout`);
+  assert.equal(logout.status, 405);
   const login = await fetch(`http://127.0.0.1:${port}/auth/login`, { redirect: 'manual' });
   assert.equal(login.status, 302);
   assert.match(login.headers.get('set-cookie') || '', /vibes_oauth_state=/u);
@@ -240,7 +294,7 @@ test('player controls expose autoplay and bounded volume buttons', () => {
   assert.equal(adjustVolume(100, 1), 100);
   assert.equal(adjustVolume(50, 1), 60);
 });
-test('personal music commands and save menu expose the library UX', () => {
+test('shared music commands and save menu expose the library UX', () => {
   assert.equal(likeCommand.data.name, 'like');
   assert.equal(likedCommand.data.name, 'liked');
   assert.equal(playlistCommand.data.name, 'playlist');
@@ -254,6 +308,21 @@ test('personal music commands and save menu expose the library UX', () => {
   const menu = createPlaylistSelectMenu([{ playlistId: 1, name: 'Favorites', songCount: 2 }]).toJSON();
   assert.equal(menu.components[0].custom_id, 'music_playlist_select');
   assert.equal(menu.components[0].options[0].value, '1');
+});
+test('help lists shared library and complete prefix controls', async () => {
+  let payload;
+  await helpCommand.executeSlash({
+    reply: async (value) => {
+      payload = value;
+      return value;
+    },
+  }, {});
+  const fields = payload.embeds[0].data.fields;
+  const library = fields.find((field) => field.name.includes('Shared Music Library'));
+  const music = fields.find((field) => field.name.includes('Musik'));
+  assert.match(library.value, /\/playlist add <id> \[song-key\]/u);
+  assert.match(library.value, /liked song anggota lain/u);
+  assert.match(music.value, /!resume/u);
 });
 
 
@@ -407,6 +476,37 @@ test('stream relay serves one local URL from a fresh source stream', async () =>
     assert.equal(response.status, 200);
     assert.equal(await response.text(), 'relay-ok');
   } finally {
+    await relay.close();
+  }
+});
+test('stream relay rejects a concurrent consumer before opening a second stream', async () => {
+  let createCount = 0;
+  let resolveStarted;
+  let releaseStream;
+  const started = new Promise((resolve) => { resolveStarted = resolve; });
+  const gate = new Promise((resolve) => { releaseStream = resolve; });
+  const relay = await createStreamRelay({
+    ttlMs: 1_000,
+    createStream: async () => {
+      createCount += 1;
+      resolveStarted();
+      await gate;
+      return Readable.from(['relay-once']);
+    },
+  });
+  try {
+    const url = relay.register('video-source');
+    const firstRequest = fetch(url);
+    await started;
+    const secondResponse = await fetch(url);
+    assert.equal(secondResponse.status, 409);
+    releaseStream();
+    const firstResponse = await firstRequest;
+    assert.equal(firstResponse.status, 200);
+    assert.equal(await firstResponse.text(), 'relay-once');
+    assert.equal(createCount, 1);
+  } finally {
+    releaseStream();
     await relay.close();
   }
 });

@@ -1,6 +1,5 @@
 import { SlashCommandBuilder, EmbedBuilder, AttachmentBuilder } from 'discord.js';
-import { renderProfileCard } from './profile-card.js';
-
+import { config } from '../../core/config.js';
 export const pingCommand = {
   data: new SlashCommandBuilder()
     .setName('ping')
@@ -166,34 +165,49 @@ export const helpCommand = {
 };
 
 function buildHelpEmbed(client) {
+  const prefix = config.prefix;
   const embed = new EmbedBuilder()
     .setColor(0x5865F2)
     .setTitle('📖 Daftar Perintah Bot')
-    .setDescription('Bot ini mendukung **Slash Command (/)** dan **Prefix Command (!)**.')
+    .setDescription(`Bot ini mendukung **Slash Command (/)** dan **Prefix Command (${prefix})**.`)
     .addFields(
       {
         name: '🎵 Musik (YouTube Stream Mode)',
-        value:
-          '`/play [query]` atau `!play [query]` - Putar musik dari judul, link video, atau playlist\n' +
-          '`/skip` atau `!skip` (`!next`) - Lewati ke lagu berikutnya\n' +
-          '`/prev` atau `!prev` - Putar kembali lagu sebelumnya dari history\n' +
-          '`/queue` atau `!queue` (`!q`) - Lihat antrean playlist yang sedang diputar\n' +
-          '`/pause` & `/resume` - Jeda / Lanjutkan musik\n' +
-          '`/stop` atau `!stop` - Matikan musik dan bersihkan antrean\n' +
-          '`/loop` atau `!loop` - Atur pengulangan (off / song / queue)\n' +
-          '`/shuffle` atau `!shuffle` - Acak antrean lagu\n' +
-          '`/volume [0-100]` atau `!volume [0-100]` - Atur volume suara (`0` = mute)\n' +
-          '`/autoplay [enabled]` atau `!autoplay on|off` - Lanjutkan dengan rekomendasi YouTube saat antrean habis\n' +
-          '`/nowplaying` atau `!np` - Informasi lagu yang sedang berputar\n' +
-          '`/diagnose` atau `!diagnose` - Diagnostik voice, permission, dan queue',
+        value: [
+          `\`/play <query>\` atau \`${prefix}play <query>\` - Putar judul, link video, atau playlist YouTube`,
+          `\`/skip\` atau \`${prefix}skip\` (\`${prefix}next\`, \`${prefix}s\`) - Lewati lagu berikutnya`,
+          `\`/prev\` atau \`${prefix}prev\` (\`${prefix}previous\`, \`${prefix}back\`) - Putar lagu sebelumnya`,
+          `\`/queue\` atau \`${prefix}queue\` (\`${prefix}q\`, \`${prefix}playlist\`, \`${prefix}list\`) - Lihat antrean musik`,
+          `\`/pause\` atau \`${prefix}pause\` - Jeda musik`,
+          `\`/resume\` atau \`${prefix}resume\` (\`${prefix}unpause\`) - Lanjutkan musik`,
+          `\`/stop\` atau \`${prefix}stop\` (\`${prefix}leave\`, \`${prefix}disconnect\`, \`${prefix}dc\`) - Hentikan musik dan kosongkan antrean`,
+          `\`/loop [mode]\` atau \`${prefix}loop [off|song|queue]\` (\`${prefix}repeat\`) - Atur mode pengulangan`,
+          `\`/shuffle\` atau \`${prefix}shuffle\` (\`${prefix}mix\`) - Acak antrean musik`,
+          `\`/volume <0-100>\` atau \`${prefix}volume <0-100>\` (\`${prefix}vol\`, \`${prefix}v\`) - Atur volume`,
+          `\`/autoplay [enabled]\` atau \`${prefix}autoplay [on|off|status]\` (\`${prefix}auto\`) - Atur rekomendasi otomatis`,
+          `\`/nowplaying\` atau \`${prefix}nowplaying\` (\`${prefix}np\`, \`${prefix}current\`) - Lihat lagu yang sedang diputar`,
+          `\`/diagnose\` atau \`${prefix}diagnose\` (\`${prefix}diag\`, \`${prefix}health\`) - Periksa voice, permission, queue, dan koneksi`,
+        ].join('\n'),
+      },
+      {
+        name: '🎶 Shared Music Library',
+        value: [
+          `\`/library\` atau \`${prefix}library\` (\`${prefix}lib\`) - Buka card library server`,
+          `\`/like\` atau \`${prefix}like\` (\`${prefix}love\`, \`${prefix}favorite\`) - Tambah atau hapus like lagu aktif`,
+          `\`/liked list|play|shuffle|remove <song-key>\` atau \`${prefix}liked ...\` (\`${prefix}likes\`, \`${prefix}favorites\`) - Kelola liked songs server`,
+          `\`/playlist list|create|add|show|play|shuffle|remove|delete\` atau \`${prefix}playlist ...\` (\`${prefix}pl\`) - Kelola shared playlist`,
+          '`/playlist add <id> [song-key]` - Tambah lagu aktif atau liked song anggota lain',
+          'Card library dapat memutar, shuffle, menambah liked song ke playlist, menghapus lagu, dan menghapus playlist.',
+        ].join('\n'),
       },
       {
         name: '🛠️ General / Utilities',
-        value:
-          '`/ping` atau `!ping` - Cek latensi respons bot\n' +
-          '`/stats` atau `!stats` - Lihat status operasional bot\n' +
-          '`/profile` atau `!profile` (`!me`) - Kartu profil musik personal\n' +
-          '`/help` atau `!help` - Menampilkan panduan bantuan ini',
+        value: [
+          `\`/ping\` atau \`${prefix}ping\` (\`${prefix}pings\`, \`${prefix}latency\`) - Cek latensi bot`,
+          `\`/stats\` atau \`${prefix}stats\` (\`${prefix}status\`) - Lihat status operasional dan metrics`,
+          `\`/profile\` atau \`${prefix}profile\` (\`${prefix}me\`) - Lihat kartu profil musik personal`,
+          `\`/help\` atau \`${prefix}help\` (\`${prefix}h\`, \`${prefix}bantuan\`) - Tampilkan panduan ini`,
+        ].join('\n'),
       },
     )
     .setFooter({ text: 'Vibes Discord Bot • Modular Architecture' })

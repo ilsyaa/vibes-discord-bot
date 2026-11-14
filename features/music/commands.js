@@ -575,7 +575,9 @@ export const nowPlayingCommand = {
     }
 
     const song = queue.songs[0];
-    return interaction.reply({
+    await interaction.deferReply();
+    await ensureSongMetadata(song);
+    return interaction.editReply({
       embeds: [createNowPlayingEmbed(queue, song)],
       components: createPlayerButtons(queue, {
         autoplayEnabled: client.store?.getGuildSettings?.(queue.id)?.autoplay === true,
@@ -592,6 +594,7 @@ export const nowPlayingCommand = {
     }
 
     const song = queue.songs[0];
+    await ensureSongMetadata(song);
     return message.reply({
       embeds: [createNowPlayingEmbed(queue, song)],
       components: createPlayerButtons(queue, {

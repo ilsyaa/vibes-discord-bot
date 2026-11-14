@@ -368,6 +368,9 @@ export async function initMusicPlayer(client) {
   });
 
   distube.on('playSong', async (queue, song) => {
+    await recoverSongMetadata(song).catch((error) => {
+      console.warn('⚠️ Gagal memulihkan metadata lagu yang sedang diputar:', error.message);
+    });
     client.store?.recordMetric(queue.id, 'plays');
     recordProfileTrack(client, queue, song);
     if (client.store?.getGuildSettings?.(queue.id)?.autoplay === true) {
@@ -405,7 +408,7 @@ export async function initMusicPlayer(client) {
       .setThumbnail(song.thumbnail || null)
       .addFields(
         { name: '⏱️ Durasi', value: song.formattedDuration || 'N/A', inline: true },
-        { name: '👤 Channel', value: song.uploader.name || 'Unknown', inline: true },
+        { name: '👤 Channel', value: song.uploader?.name || song.uploader || 'Unknown', inline: true },
         { name: '📌 Posisi Antrean', value: `#${queue.songs.length}`, inline: true },
       )
       .setFooter({ text: `Diminta oleh ${song.user?.tag || song.user?.username || 'User'}` })
@@ -476,9 +479,13 @@ export async function initMusicPlayer(client) {
 }
 
 export async function closeMusicPlayer() {
+  const distube = distubeInstance;
   const provider = poTokenProvider;
   const pool = youtubeProxyPool;
   const relay = youtubeStreamRelay;
+  await Promise.allSettled(
+    [...(distube?.queues?.collection?.values?.() || [])].map((queue) => queue.stop()),
+  );
   poTokenProvider = null;
   songMetadataResolver = null;
   youtubePluginInstance = null;

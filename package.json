@@ -8,6 +8,7 @@
     "start": "node index.js",
     "dev": "node --watch index.js",
     "deploy": "node core/deploy.js",
+    "backup": "node core/backup.js",
     "test": "node --test"
   },
   "keywords": [],

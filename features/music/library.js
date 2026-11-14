@@ -479,6 +479,10 @@ async function executePlaylistAction(source, client, action, values, ephemeral) 
 }
 
 async function playCollection(source, songs, client, ephemeral) {
+  const settings = client.store?.getGuildSettings?.(source.guildId);
+  if (settings?.musicChannelId && settings.musicChannelId !== source.channelId) {
+    throw new Error(`Server ini menetapkan channel musik khusus. Gunakan channel <#${settings.musicChannelId}>.`);
+  }
   const voiceChannel = source.member?.voice?.channel;
   if (!voiceChannel) throw new Error('Kamu harus berada di dalam voice channel terlebih dahulu.');
   const botVoice = source.guild?.members?.me?.voice?.channel;
@@ -495,6 +499,7 @@ async function playCollection(source, songs, client, ephemeral) {
     await source.editReply({ content: loading });
     try {
       for (const song of songs) await distube.play(voiceChannel, song.url, { textChannel, member });
+      applyGuildPlaybackSettings(distube, client, source.guildId);
       return source.editReply({ content: `✅ Menambahkan ${songs.length} lagu ke antrean.` });
     } catch (error) {
       return source.editReply({ content: `⚠️ Gagal memutar koleksi: ${friendlyError(error)}` });
@@ -503,10 +508,16 @@ async function playCollection(source, songs, client, ephemeral) {
 
   try {
     for (const song of songs) await distube.play(voiceChannel, song.url, { textChannel, member });
+    applyGuildPlaybackSettings(distube, client, source.guildId);
     return source.reply({ content: `✅ Menambahkan ${songs.length} lagu ke antrean.` });
   } catch (error) {
     return source.reply({ content: `⚠️ Gagal memutar koleksi: ${friendlyError(error)}` });
   }
+}
+function applyGuildPlaybackSettings(distube, client, guildId) {
+  const settings = client.store?.ensureGuildSettings?.(guildId);
+  const queue = distube.getQueue(guildId);
+  if (settings && queue?.setVolume) queue.setVolume(settings.defaultVolume);
 }
 
 async function resolveCurrentSong(guildId) {

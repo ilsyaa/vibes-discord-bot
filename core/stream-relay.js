@@ -43,6 +43,7 @@ export async function createStreamRelay({
     const entry = {
       source,
       stream: null,
+      inFlight: null,
       response: null,
       timer: setTimeout(() => {
         entry.stream?.destroy();
@@ -69,15 +70,23 @@ export async function createStreamRelay({
       response.end();
       return;
     }
-    if (entry.stream) {
+    if (entry.stream || entry.inFlight) {
       response.writeHead(409);
       response.end();
       return;
     }
 
+    const inFlight = Promise.resolve().then(() => createStream(entry.source));
+    entry.inFlight = inFlight;
     let stream;
     try {
-      stream = await createStream(entry.source);
+      stream = await inFlight;
+      if (entry.inFlight !== inFlight || response.destroyed) {
+        if (entry.inFlight === inFlight) entry.inFlight = null;
+        stream.destroy();
+        return;
+      }
+      entry.inFlight = null;
       entry.stream = stream;
       entry.response = response;
       response.on('error', () => {});
@@ -97,10 +106,12 @@ export async function createStreamRelay({
       });
       stream.pipe(response);
     } catch (error) {
+      if (entry.inFlight === inFlight) entry.inFlight = null;
       onError(error);
-      response.writeHead(502);
-      response.end('stream unavailable');
-      entry.stream = null;
+      if (!response.destroyed) {
+        response.writeHead(502);
+        response.end('stream unavailable');
+      }
     }
   }
 

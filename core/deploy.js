@@ -2,12 +2,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { REST, Routes } from 'discord.js';
-import { config } from './config.js';
+import { config, validateRuntimeConfig } from './config.js';
 
 export async function deploy() {
-  if (!config.token || !config.clientId) {
-    throw new Error('DISCORD_TOKEN dan CLIENT_ID harus diisi di file .env.');
-  }
+  validateRuntimeConfig({ requireClientId: true });
 
   const featuresPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../features');
   if (!fs.existsSync(featuresPath)) {

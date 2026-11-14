@@ -229,11 +229,16 @@ export async function handleMusicButton(interaction, client) {
       await interaction.editReply({
         content: `⚠️ Terjadi kesalahan: \`${error.message}\``,
       }).catch(() => {});
-    } else if (!interaction.replied) {
+    } else if (interaction.replied) {
+      await interaction.followUp({
+        content: `⚠️ Terjadi kesalahan: \`${error.message}\``,
+        ephemeral: true,
+      }).catch(() => {});
+    } else {
       await interaction.reply({
         content: `⚠️ Terjadi kesalahan: \`${error.message}\``,
         ephemeral: true,
-      });
+      }).catch(() => {});
     }
     return true;
   }

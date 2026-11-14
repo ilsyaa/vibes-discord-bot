@@ -17,7 +17,7 @@ export function openStore(databasePath, { defaultVolume = 50 } = {}) {
     timeout: 5000,
     defensive: true,
   });
-
+  if (databasePath !== ':memory:') fs.chmodSync(databasePath, 0o600);
   database.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;');
   database.exec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -375,6 +375,11 @@ export class Store {
     this.database
       .prepare('INSERT INTO oauth_states (state_hash, code_verifier, expires_at) VALUES (?, ?, ?)')
       .run(stateHash, codeVerifier, expiresAt);
+  }
+  countActiveOAuthStates() {
+    return this.database
+      .prepare("SELECT COUNT(*) AS count FROM oauth_states WHERE julianday(expires_at) > julianday('now')")
+      .get().count;
   }
 
   consumeOAuthState(stateHash) {

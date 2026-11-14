@@ -40,8 +40,8 @@ export function createNowPlayingEmbed(queue, song) {
     .setDescription(`**${formatSongLink(song)}**`)
     .addFields(
       { name: '⏱️ Durasi', value: song.formattedDuration || 'Live Stream', inline: true },
-      { name: '👤 Channel / Artist', value: song.uploader?.name || 'Unknown', inline: true },
-      { name: '🎧 Diminta Oleh', value: `<@${song.user?.id}>`, inline: true },
+      { name: '👤 Channel / Artist', value: song.uploader?.name || song.uploader || 'Unknown', inline: true },
+      { name: '🎧 Diminta Oleh', value: song.user?.id ? `<@${song.user.id}>` : song.user?.username || 'Unknown', inline: true },
       { name: '🔊 Volume', value: `${queue.volume}%`, inline: true },
       { name: '🔁 Loop', value: loopStatus, inline: true },
       { name: '📑 Sisa Antrean', value: `${queue.songs.length - 1} lagu`, inline: true },

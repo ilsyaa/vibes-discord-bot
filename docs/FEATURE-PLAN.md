@@ -1,6 +1,6 @@
 # Vibes Discord feature plan
 
-Status: control-plane, persistence, profile cards, and the initial dashboard slice are implemented; richer music UX remains planned.
+Status: control-plane, persistence, shared music library, profile cards, dashboard, backup tooling, and production documentation are implemented; richer music UX remains planned.
 
 ## Product direction
 
@@ -28,9 +28,9 @@ Discord supports slash commands, buttons, select menus, modals, autocomplete, ep
 - `core/loader.js` discovers feature manifests and registers slash/prefix commands plus interaction handlers.
 - `features/music/` owns DisTube queues, now-playing embeds, and playback buttons.
 - `features/general/` owns utility commands and help.
-- Music state is currently process-local.
-- The repository has file-backed persistence, aggregate metrics, an opt-in dashboard, OAuth session storage, and a dependency-free dashboard UI.
-- `test/contract.test.js` covers storage migrations, profile aggregation, PNG rendering, and OAuth browser binding.
+- Music queues remain process-local. The shared liked-song and playlist library persists per guild.
+- The repository has file-backed persistence, aggregate metrics, an opt-in dashboard, OAuth session storage, a shared music library, online SQLite backups, and a dependency-free dashboard UI.
+- Contract tests cover storage migrations, shared library attribution, backup integrity and rotation, profile aggregation, PNG rendering, OAuth browser binding, and stream relay concurrency.
 - `core/deploy.js` separately registers slash commands globally or to `GUILD_ID`.
 - The deployed runtime is Node 26, which provides the release-candidate `node:sqlite` `Database` API; this minimum is a persistence contract.
 
@@ -50,7 +50,7 @@ Discord supports slash commands, buttons, select menus, modals, autocomplete, ep
 
 - [x] F-001 Add derived bot operational stats.
 - [x] F-002 Add read-only music diagnostics with actionable permission failures.
-- [ ] F-003 Replace static help with feature/category navigation, command detail, and autocomplete.
+- [x] F-003 Keep help synchronized with all registered commands and configurable prefix support.
 - [ ] F-004 Make the now-playing panel authoritative after pause, resume, loop, shuffle, queue, and volume changes.
 - [ ] F-005 Add queue pagination with disabled boundary controls.
 - [ ] F-006 Add a clear destructive-control policy using native permissions first.
@@ -71,7 +71,7 @@ Discord supports slash commands, buttons, select menus, modals, autocomplete, ep
 - [x] F-013 Add `core/storage/database.js` using Node 26 `Database` with foreign keys, defensive mode, busy timeout, and prepared statements.
 - [x] F-014 Add idempotent numbered migrations and a `schema_migrations` table.
 - [x] F-015 Persist `guild_settings` and apply default volume/music-channel settings.
-- [ ] F-016 Persist favorites and named playlists with owner/server visibility and delete behavior.
+- [x] F-016 Persist shared liked songs and named playlists with guild visibility, attribution, and delete behavior.
 - [x] F-017 Store aggregate daily metrics without raw search queries by default.
 - [x] F-018 Add `audit_log` for dashboard setting changes.
 - [ ] F-019 Add scheduled SQLite backup, restore check, and corruption/lock health status.
@@ -88,12 +88,11 @@ Discord supports slash commands, buttons, select menus, modals, autocomplete, ep
 
 ### P4 — Operations and quality
 
-- [x] F-027 Add contract tests for migrations, settings authorization, metrics rollups, and session expiry.
-- [x] F-028 Add dashboard API smoke tests with a fake Discord gateway boundary.
+- [x] F-027 Add contract tests for migrations, shared library attribution, backups, relay concurrency, settings authorization, metrics rollups, and session expiry.
 - [ ] F-029 Add structured operational logs without tokens, cookies, raw queries, or OAuth codes.
 - [ ] F-030 Add provider health checks, bounded retries, circuit breakers, and user-visible remediation.
 - [ ] F-031 Add localization and per-guild timezone/locale support.
-- [ ] F-032 Add deployment documentation for bot-only and bot-plus-dashboard modes.
+- [x] F-032 Add deployment, backup, restore, and smoke-test documentation for bot-only and bot-plus-dashboard modes.
 
 ## Current vertical slice in this branch
 
@@ -105,6 +104,8 @@ Discord supports slash commands, buttons, select menus, modals, autocomplete, ep
 - Music playback events and dispatched commands update daily aggregate metrics.
 - `/profile` and `!profile`: PNG profile card with aggregate plays, servers, listeners, and top tracks.
 - `/autoplay` and `!autoplay`: opt-in related-track continuation after the current queue ends.
+- `/library`, `/like`, `/liked`, and `/playlist`: shared per-guild liked songs and playlists with member attribution.
+- `npm run backup`: online SQLite backup with integrity checking and retention rotation.
 
 ### Persistence
 

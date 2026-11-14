@@ -54,6 +54,7 @@ export async function loadFeatures(client) {
       }
     } catch (err) {
       console.error(`❌ Gagal memuat fitur [${entry.name}]:`, err);
+      throw err;
     }
   }
 }

@@ -8,6 +8,10 @@ const MANAGE_GUILD = 1n << 5n;
 const ADMINISTRATOR = 1n << 3n;
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+const MAX_OAUTH_STATES = 1000;
+const OAUTH_ATTEMPT_WINDOW_MS = 10 * 60 * 1000;
+const OAUTH_ATTEMPT_LIMIT = 10;
+const oauthAttempts = new Map();
 
 export function createDashboardServer({ client, store, config }) {
   return http.createServer(async (request, response) => {
@@ -22,6 +26,8 @@ export function createDashboardServer({ client, store, config }) {
 
 export async function startDashboard({ client, store, config }) {
   const server = createDashboardServer({ client, store, config });
+  server.requestTimeout = 30_000;
+  server.headersTimeout = 10_000;
   store.cleanupExpired();
   const cleanup = setInterval(() => store.cleanupExpired(), 60 * 60 * 1000);
   cleanup.unref();
@@ -38,12 +44,7 @@ async function routeRequest(request, response, context) {
   const url = new URL(request.url || '/', `http://${request.headers.host || 'localhost'}`);
 
   if (url.pathname === '/health' && request.method === 'GET') {
-    return sendJson(response, 200, {
-      ok: true,
-      botReady: context.client.isReady(),
-      guilds: context.client.guilds.cache.size,
-      dashboardConfigured: isConfigured(context.config),
-    });
+    return sendJson(response, 200, { ok: true });
   }
 
   if (url.pathname === '/' && request.method === 'GET') {
@@ -58,11 +59,19 @@ async function routeRequest(request, response, context) {
     return finishOAuth(url, request, response, context);
   }
 
-  if (url.pathname === '/auth/logout' && request.method === 'GET') {
-    const session = getSession(request, context.store, context.config);
-    if (session) context.store.deleteSession(session.sessionHash);
-    response.writeHead(302, { Location: '/', 'Set-Cookie': clearSessionCookie(context.config) });
+  if (url.pathname === '/auth/logout' && request.method === 'POST') {
+    const session = requireSession(request, response, context.store, context.config);
+    if (!session) return;
+    if (!sameOrigin(request, context.config) || request.headers['x-csrf-token'] !== session.csrfToken) {
+      return sendJson(response, 403, { error: 'csrf_failed', message: 'CSRF validation failed.' });
+    }
+    context.store.deleteSession(session.sessionHash);
+    response.writeHead(204, { 'Set-Cookie': clearSessionCookie(context.config) });
     return response.end();
+  }
+
+  if (url.pathname === '/auth/logout' && request.method === 'GET') {
+    return sendJson(response, 405, { error: 'method_not_allowed', message: 'Use POST to sign out.' });
   }
 
   if (url.pathname === '/api/me' && request.method === 'GET') {
@@ -99,6 +108,13 @@ function startOAuth(request, response, { config, store }) {
       error: 'dashboard_not_configured',
       message: 'Set DASHBOARD_PUBLIC_URL, DASHBOARD_CLIENT_ID, DASHBOARD_CLIENT_SECRET, and DASHBOARD_SESSION_SECRET.',
     });
+  }
+  if (!allowOAuthAttempt(request)) {
+    return sendJson(response, 429, { error: 'rate_limited', message: 'Too many login attempts. Try again later.' });
+  }
+  store.cleanupExpired();
+  if (store.countActiveOAuthStates() >= MAX_OAUTH_STATES) {
+    return sendJson(response, 503, { error: 'oauth_capacity_reached', message: 'Login is temporarily busy. Try again later.' });
   }
 
   const state = randomToken(32);
@@ -193,6 +209,7 @@ async function exchangeCode(code, codeVerifier, config) {
       'Content-Type': 'application/x-www-form-urlencoded',
     },
     body,
+    signal: AbortSignal.timeout(10_000),
   });
   if (!response.ok) throw new Error(`Discord OAuth token exchange failed with ${response.status}`);
   return response.json();
@@ -201,6 +218,7 @@ async function exchangeCode(code, codeVerifier, config) {
 async function discordGet(pathname, accessToken) {
   const response = await fetch(`${DISCORD_API}${pathname}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
+    signal: AbortSignal.timeout(10_000),
   });
   if (!response.ok) throw new Error(`Discord OAuth API request failed with ${response.status}`);
   return response.json();
@@ -339,6 +357,21 @@ function isConfigured(config) {
       && config.dashboardSessionSecret,
   );
 }
+function allowOAuthAttempt(request) {
+  const key = request.socket.remoteAddress || 'unknown';
+  const now = Date.now();
+  for (const [address, attempt] of oauthAttempts) {
+    if (now - attempt.startedAt >= OAUTH_ATTEMPT_WINDOW_MS) oauthAttempts.delete(address);
+  }
+  const current = oauthAttempts.get(key);
+  if (!current) {
+    oauthAttempts.set(key, { startedAt: now, count: 1 });
+    return true;
+  }
+  if (current.count >= OAUTH_ATTEMPT_LIMIT) return false;
+  current.count += 1;
+  return true;
+}
 
 function getSession(request, store, config) {
   const cookies = parseCookies(request.headers.cookie || '');
@@ -347,11 +380,19 @@ function getSession(request, store, config) {
 }
 
 function parseCookies(value) {
-  return Object.fromEntries(value.split(';').map((part) => {
+  const cookies = {};
+  for (const part of value.split(';')) {
     const index = part.indexOf('=');
-    if (index === -1) return [part.trim(), ''];
-    return [part.slice(0, index).trim(), decodeURIComponent(part.slice(index + 1).trim())];
-  }).filter(([key]) => key));
+    if (index === -1) continue;
+    const key = part.slice(0, index).trim();
+    if (!key) continue;
+    try {
+      cookies[key] = decodeURIComponent(part.slice(index + 1).trim());
+    } catch {
+      continue;
+    }
+  }
+  return cookies;
 }
 
 function sessionCookie(token, config) {
@@ -485,7 +526,11 @@ async function boot() {
   try {
     const me = await api('/api/me');
     csrfToken = me.csrfToken;
-    auth.innerHTML = '<a href="/auth/logout">Sign out</a>';
+    auth.innerHTML = '<button id="logout" class="secondary">Sign out</button>';
+    document.getElementById('logout').addEventListener('click', async () => {
+      await fetch('/auth/logout', { method: 'POST', headers: { 'X-CSRF-Token': csrfToken } });
+      location.reload();
+    });
     renderGuilds(me.guilds);
   } catch (error) {
     auth.innerHTML = '<a href="/auth/login"><button>Sign in with Discord</button></a>';

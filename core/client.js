@@ -4,7 +4,7 @@ import {
   GatewayIntentBits,
   ActivityType,
 } from 'discord.js';
-import { config } from './config.js';
+import { config, validateRuntimeConfig } from './config.js';
 import { loadFeatures } from './loader.js';
 import { initLogger } from './logger.js';
 import { openStore } from './storage/database.js';
@@ -70,7 +70,9 @@ client.on('interactionCreate', async (interaction) => {
       content: '⚠️ Terjadi kesalahan saat memproses perintah ini.',
       ephemeral: true,
     };
-    if (interaction.replied || interaction.deferred) {
+    if (interaction.deferred) {
+      await interaction.editReply(errMessage).catch(() => {});
+    } else if (interaction.replied) {
       await interaction.followUp(errMessage).catch(() => {});
     } else {
       await interaction.reply(errMessage).catch(() => {});
@@ -153,6 +155,7 @@ function recordCommandActivity(user, guildId) {
 }
 
 export async function start() {
+  validateRuntimeConfig();
   store = openStore(config.databasePath, { defaultVolume: config.defaultVolume });
   client.store = store;
 
@@ -168,14 +171,6 @@ export async function start() {
   process.once('SIGTERM', handleSignal);
 
   await loadFeatures(client);
-
-  if (!config.token) {
-    console.warn('⚠️ DISCORD_TOKEN belum diatur di file .env!');
-    console.warn('Isi DISCORD_TOKEN di .env untuk menghubungkan bot ke Discord.');
-    await shutdown();
-    return;
-  }
-
   await client.login(config.token);
 }
 

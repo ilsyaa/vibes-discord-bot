@@ -1,6 +1,6 @@
-# Vibes Discord - Modular Personal Bot (ESM)
+# Vibes Discord - Modular Discord Bot (ESM)
 
-Bot Discord serbaguna (*multi-purpose*) untuk kebutuhan server pribadi Anda. Dirancang dengan **arsitektur modular berbasis fitur terisolasi**, menggunakan **ECMAScript Modules (ESM)** modern, serta mendukung **Slash Commands (/)** standar Discord dan **Prefix Commands (!)** secara bersamaan.
+Bot Discord serbaguna (*multi-purpose*) untuk kebutuhan server musik dan utilitas. Bot menggunakan arsitektur modular berbasis fitur terisolasi, ECMAScript Modules (ESM), Slash Commands (/), dan Prefix Commands (!).
 
 ---
 
@@ -158,6 +158,8 @@ YOUTUBE_PROXY_FILE=data/youtube-proxies.txt
 YOUTUBE_PROXY_COOLDOWN_MS=60000
 YOUTUBE_PROXY_FAILURE_COOLDOWN_MS=600000
 DATABASE_PATH=data/vibes.sqlite
+DATABASE_BACKUP_DIR=backups
+DATABASE_BACKUP_RETENTION=14
 
 # Optional dashboard
 DASHBOARD_ENABLED=false
@@ -169,7 +171,7 @@ DASHBOARD_CLIENT_SECRET=
 DASHBOARD_SESSION_SECRET=replace-with-a-long-random-secret
 ```
 
-> **Penting**: Di **Discord Developer Portal -> Bot -> Privileged Gateway Intents**, pastikan opsi **Message Content Intent** sudah diaktifkan agar prefix command `!` dapat dibaca.
+> **Penting**: Di **Discord Developer Portal -> Bot -> Privileged Gateway Intents**, aktifkan **Message Content Intent**, **Guilds**, **Guild Voice States**, dan **Guild Messages**.
 
 ### 3. Deploy Slash Commands
 Jalankan perintah ini setelah setup awal dan setiap kali slash command berubah:
@@ -198,10 +200,18 @@ Mode produksi:
 ```bash
 npm start
 ```
+
+Buat backup database:
+```bash
+npm run backup
+```
+
 Mode pengembangan (*auto-restart saat kode diubah*):
 ```bash
 npm run dev
 ```
+
+Panduan deploy, backup, restore, dashboard, dan smoke test ada di [`docs/PRODUCTION.md`](docs/PRODUCTION.md).
 
 ---
 
