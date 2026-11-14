@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
-import { getDisTube, skipWithAutoplay } from './player.js';
+import { getDisTube, skipWithAutoplay, ensureSongMetadata } from './player.js';
 import { formatRepeatMode, createNowPlayingEmbed, createPlayerButtons, formatSongLink, getSongTitle } from './ui.js';
 
 export const playCommand = {
@@ -144,6 +144,7 @@ export const skipCommand = {
     await interaction.deferReply();
     try {
       const song = await queue.skip();
+      await ensureSongMetadata(song);
       return interaction.editReply({
         content: `⏭️ Berhasil melewati lagu! Sekarang memutar: **${getSongTitle(song)}**`,
       });
@@ -177,6 +178,7 @@ export const skipCommand = {
 
     try {
       const song = await queue.skip();
+      await ensureSongMetadata(song);
       return message.reply(`⏭️ Berhasil melewati lagu! Sekarang memutar: **${getSongTitle(song)}**`);
     } catch (err) {
       if (err.errorCode === 'NO_UP_NEXT' || err.message.includes('NO_UP_NEXT')) {
@@ -209,6 +211,7 @@ export const prevCommand = {
 
     try {
       const song = await queue.previous();
+      await ensureSongMetadata(song);
       return interaction.reply({
         content: `⏮️ Memutar kembali lagu sebelumnya: **${getSongTitle(song)}**`,
       });
@@ -236,6 +239,7 @@ export const prevCommand = {
 
     try {
       const song = await queue.previous();
+      await ensureSongMetadata(song);
       return message.reply(`⏮️ Memutar kembali lagu sebelumnya: **${getSongTitle(song)}**`);
     } catch (err) {
       if (err.errorCode === 'NO_PREVIOUS' || err.message.includes('NO_PREVIOUS')) {

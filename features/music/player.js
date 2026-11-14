@@ -16,6 +16,7 @@ let youtubePluginInstance = null;
 let youtubeProxyPool = null;
 let youtubeStreamRelay = null;
 let poTokenProvider = null;
+let songMetadataResolver = null;
 
 const recordedProfileTracks = new WeakSet();
 const autoplayInFlight = new Set();
@@ -25,6 +26,11 @@ const autoplayRelatedInFlight = new Map();
 
 export function getDisTube() {
   return distubeInstance;
+}
+
+export async function ensureSongMetadata(song) {
+  await songMetadataResolver?.(song);
+  return song;
 }
 
 function recordProfileTrack(client, queue, song) {
@@ -109,7 +115,12 @@ async function autoplayNext(client, distube, youtubePlugin, queue, { manual = fa
       textChannel: queue.textChannel,
       member: currentSong.member,
     });
-    return manual ? queue.skip() : true;
+    if (manual) {
+      const nextSong = await queue.skip();
+      await ensureSongMetadata(nextSong);
+      return nextSong;
+    }
+    return true;
   } catch (error) {
     console.warn(`Autoplay recommendation failed for guild ${queue.id}:`, error.message);
     return false;
@@ -293,6 +304,7 @@ export async function initMusicPlayer(client) {
       if (songMetadataRequests.get(song) === request) songMetadataRequests.delete(song);
     }
   };
+  songMetadataResolver = recoverSongMetadata;
   youtubeStreamRelay = await createStreamRelay({
     createStream: async ({ url, info }) => {
       const mediaInfo = info || await youtubePlugin.ytdl.getInfo(url);
@@ -467,6 +479,7 @@ export async function closeMusicPlayer() {
   const pool = youtubeProxyPool;
   const relay = youtubeStreamRelay;
   poTokenProvider = null;
+  songMetadataResolver = null;
   youtubePluginInstance = null;
   youtubeProxyPool = null;
   youtubeStreamRelay = null;

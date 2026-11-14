@@ -1,4 +1,4 @@
-import { getDisTube, skipWithAutoplay } from './player.js';
+import { getDisTube, skipWithAutoplay, ensureSongMetadata } from './player.js';
 import { clampVolume, formatRepeatMode, createNowPlayingEmbed, createPlayerButtons, formatSongLink, getSongTitle } from './ui.js';
 
 export async function handleMusicButton(interaction, client) {
@@ -32,6 +32,7 @@ export async function handleMusicButton(interaction, client) {
       case 'music_prev': {
         try {
           const song = await queue.previous();
+          await ensureSongMetadata(song);
           await interaction.reply({
             content: `⏮️ **${member.user.username}** memutar kembali lagu sebelumnya: **${getSongTitle(song)}**`,
           });
@@ -65,6 +66,7 @@ export async function handleMusicButton(interaction, client) {
         await interaction.deferReply();
         try {
           const song = await queue.skip();
+          await ensureSongMetadata(song);
           await interaction.editReply({
             content: `⏭️ **${member.user.username}** melewati lagu. Sekarang memutar: **${getSongTitle(song)}**`,
           });
