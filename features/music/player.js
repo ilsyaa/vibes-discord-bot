@@ -191,6 +191,8 @@ export async function initMusicPlayer(client) {
     },
   });
   const resolvedInfos = new Map();
+  const songMetadataRequests = new WeakMap();
+
   const pluginYtdl = youtubePlugin.ytdl;
   const originalGetInfo = pluginYtdl.getInfo.bind(pluginYtdl);
   pluginYtdl.getInfo = async (video, options) => {
@@ -198,6 +200,62 @@ export async function initMusicPlayer(client) {
     resolvedInfos.set(info.videoDetails.id, info);
     if (resolvedInfos.size > 100) resolvedInfos.delete(resolvedInfos.keys().next().value);
     return info;
+  };
+  const findResolvedInfo = (song) => {
+    if (song.id) {
+      const info = resolvedInfos.get(song.id);
+      if (info) return info;
+    }
+    return [...resolvedInfos.values()].find((candidate) => candidate.videoDetails?.url === song.url);
+  };
+
+  const recoverSongMetadata = async (song) => {
+    if (!song?.url) return undefined;
+    if (hasSongTitle(song)) return findResolvedInfo(song);
+
+    const existingRequest = songMetadataRequests.get(song);
+    if (existingRequest) return existingRequest;
+
+    const request = (async () => {
+      let info = findResolvedInfo(song);
+      hydrateSongMetadata(song, info);
+
+      if (!hasSongTitle(song)) {
+        try {
+          info = await youtubePlugin.ytdl.getInfo(song.url);
+          hydrateSongMetadata(song, info);
+        } catch (error) {
+          console.warn('⚠️ Gagal mengambil ulang metadata judul YouTube:', error.message);
+        }
+      }
+
+      if (!hasSongTitle(song)) {
+        try {
+          const response = await fetchThroughProxy(
+            `https://www.youtube.com/oembed?url=${encodeURIComponent(song.url)}&format=json`,
+          );
+          if (!response.ok) {
+            await response.body?.cancel();
+            throw new Error(`HTTP ${response.status}`);
+          }
+          const payload = await response.json();
+          if (typeof payload.title === 'string' && payload.title.trim()) {
+            song.name = payload.title.trim();
+          }
+        } catch (error) {
+          console.warn('⚠️ Gagal mengambil fallback judul YouTube:', error.message);
+        }
+      }
+
+      return info;
+    })();
+
+    songMetadataRequests.set(song, request);
+    try {
+      return await request;
+    } finally {
+      if (songMetadataRequests.get(song) === request) songMetadataRequests.delete(song);
+    }
   };
   youtubeStreamRelay = await createStreamRelay({
     createStream: async ({ url, info }) => {
@@ -232,39 +290,7 @@ export async function initMusicPlayer(client) {
   });
   youtubePlugin.getStreamURL = async (song) => {
     if (!song?.url) throw new Error('YouTube song URL missing');
-    let info = song.id ? resolvedInfos.get(song.id) : undefined;
-    if (!info) {
-      info = [...resolvedInfos.values()].find((candidate) => candidate.videoDetails?.url === song.url);
-    }
-    hydrateSongMetadata(song, info);
-
-    if (!hasSongTitle(song)) {
-      try {
-        info = await youtubePlugin.ytdl.getInfo(song.url);
-        hydrateSongMetadata(song, info);
-      } catch (error) {
-        console.warn('⚠️ Gagal mengambil ulang metadata judul YouTube:', error.message);
-      }
-    }
-
-    if (!hasSongTitle(song)) {
-      try {
-        const response = await fetchThroughProxy(
-          `https://www.youtube.com/oembed?url=${encodeURIComponent(song.url)}&format=json`,
-        );
-        if (!response.ok) {
-          await response.body?.cancel();
-          throw new Error(`HTTP ${response.status}`);
-        }
-        const payload = await response.json();
-        if (typeof payload.title === 'string' && payload.title.trim()) {
-          song.name = payload.title.trim();
-        }
-      } catch (error) {
-        console.warn('⚠️ Gagal mengambil fallback judul YouTube:', error.message);
-      }
-    }
-
+    const info = await recoverSongMetadata(song);
     if (song.id) resolvedInfos.delete(song.id);
     if (info?.videoDetails?.id) resolvedInfos.delete(info.videoDetails.id);
     return youtubeStreamRelay.register({ url: song.url, info });
@@ -313,7 +339,10 @@ export async function initMusicPlayer(client) {
     }
   });
 
-  distube.on('addSong', (queue, song) => {
+  distube.on('addSong', async (queue, song) => {
+    await recoverSongMetadata(song).catch((error) => {
+      console.warn('⚠️ Gagal memulihkan metadata lagu antrean:', error.message);
+    });
     recordProfileTrack(client, queue, song);
     if (!queue.textChannel) return;
 
