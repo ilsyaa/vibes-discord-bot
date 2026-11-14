@@ -25,6 +25,9 @@ export function initLogger() {
   errorLogStream.write(header);
 
   const originalConsoleError = console.error;
+  errorLogStream.on('error', (error) => {
+    originalConsoleError('Error log stream failed:', error);
+  });
   console.error = (...args) => {
     const message = redactMessage(util.format(...args));
     originalConsoleError(message);
