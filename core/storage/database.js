@@ -391,6 +391,180 @@ export class Store {
     this.database.prepare("DELETE FROM oauth_states WHERE julianday(expires_at) <= julianday('now')").run();
   }
 
+  toggleLikedSong(userId, songRecord) {
+    const ownerId = normalizeId(userId, 'userId', 100);
+    const song = normalizeSong(songRecord);
+    return this.withTransaction(() => {
+      const existing = this.database
+        .prepare('SELECT 1 FROM liked_songs WHERE user_id = ? AND song_key = ?')
+        .get(ownerId, song.songKey);
+      if (existing) {
+        this.database
+          .prepare('DELETE FROM liked_songs WHERE user_id = ? AND song_key = ?')
+          .run(ownerId, song.songKey);
+        return { liked: false, song };
+      }
+      this.database
+        .prepare(`
+          INSERT INTO liked_songs
+            (user_id, song_key, url, title, duration_seconds, thumbnail, uploader)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `)
+        .run(ownerId, song.songKey, song.url, song.title, song.durationSeconds, song.thumbnail, song.uploader);
+      return { liked: true, song };
+    });
+  }
+
+  listLikedSongs(userId, { limit = 100 } = {}) {
+    const ownerId = normalizeId(userId, 'userId', 100);
+    const boundedLimit = normalizeLimit(limit, 100);
+    return this.database
+      .prepare(`
+        SELECT song_key, url, title, duration_seconds, thumbnail, uploader
+        FROM liked_songs
+        WHERE user_id = ?
+        ORDER BY created_at DESC, rowid DESC
+        LIMIT ?
+      `)
+      .all(ownerId, boundedLimit)
+      .map(normalizeSongRow);
+  }
+
+  removeLikedSong(userId, songKey) {
+    const ownerId = normalizeId(userId, 'userId', 100);
+    const key = normalizeId(songKey, 'songKey', 512);
+    return this.database
+      .prepare('DELETE FROM liked_songs WHERE user_id = ? AND song_key = ?')
+      .run(ownerId, key).changes > 0;
+  }
+
+  createPlaylist(userId, name) {
+    const ownerId = normalizeId(userId, 'userId', 100);
+    const playlistName = normalizeName(name);
+    return this.withTransaction(() => {
+      try {
+        const result = this.database
+          .prepare('INSERT INTO playlists (user_id, name) VALUES (?, ?)')
+          .run(ownerId, playlistName);
+        return {
+          playlistId: Number(result.lastInsertRowid),
+          name: playlistName,
+          songCount: 0,
+        };
+      } catch (error) {
+        if (String(error?.message).includes('UNIQUE constraint failed')) {
+          throw new Error('playlist name already exists');
+        }
+        throw error;
+      }
+    });
+  }
+
+  listPlaylists(userId) {
+    const ownerId = normalizeId(userId, 'userId', 100);
+    return this.database
+      .prepare(`
+        SELECT p.playlist_id, p.name, p.created_at, COUNT(s.song_key) AS song_count
+        FROM playlists p
+        LEFT JOIN playlist_songs s ON s.playlist_id = p.playlist_id
+        WHERE p.user_id = ?
+        GROUP BY p.playlist_id
+        ORDER BY p.created_at DESC, p.playlist_id DESC
+      `)
+      .all(ownerId)
+      .map(normalizePlaylistRow);
+  }
+
+  getPlaylist(userId, playlistId) {
+    const ownerId = normalizeId(userId, 'userId', 100);
+    const id = normalizePlaylistId(playlistId);
+    const row = this.database
+      .prepare(`
+        SELECT p.playlist_id, p.name, p.created_at, COUNT(s.song_key) AS song_count
+        FROM playlists p
+        LEFT JOIN playlist_songs s ON s.playlist_id = p.playlist_id
+        WHERE p.user_id = ? AND p.playlist_id = ?
+        GROUP BY p.playlist_id
+      `)
+      .get(ownerId, id);
+    return row ? normalizePlaylistRow(row) : null;
+  }
+
+  addPlaylistSong(userId, playlistId, songRecord) {
+    const ownerId = normalizeId(userId, 'userId', 100);
+    const id = normalizePlaylistId(playlistId);
+    const song = normalizeSong(songRecord);
+    return this.withTransaction(() => {
+      if (!this.getPlaylist(ownerId, id)) throw new Error('playlist not found');
+      const existing = this.database
+        .prepare(`
+          SELECT song_key, url, title, duration_seconds, thumbnail, uploader
+          FROM playlist_songs WHERE playlist_id = ? AND song_key = ?
+        `)
+        .get(id, song.songKey);
+      if (existing) return normalizeSongRow(existing);
+      const position = this.database
+        .prepare('SELECT COALESCE(MAX(position), -1) + 1 AS next_position FROM playlist_songs WHERE playlist_id = ?')
+        .get(id).next_position;
+      this.database
+        .prepare(`
+          INSERT INTO playlist_songs
+            (playlist_id, song_key, url, title, duration_seconds, thumbnail, uploader, position)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `)
+        .run(id, song.songKey, song.url, song.title, song.durationSeconds, song.thumbnail, song.uploader, position);
+      return song;
+    });
+  }
+
+  listPlaylistSongs(userId, playlistId) {
+    const ownerId = normalizeId(userId, 'userId', 100);
+    const id = normalizePlaylistId(playlistId);
+    if (!this.getPlaylist(ownerId, id)) return [];
+    return this.database
+      .prepare(`
+        SELECT song_key, url, title, duration_seconds, thumbnail, uploader
+        FROM playlist_songs
+        WHERE playlist_id = ?
+        ORDER BY position ASC
+      `)
+      .all(id)
+      .map(normalizeSongRow);
+  }
+
+  removePlaylistSong(userId, playlistId, songKey) {
+    const ownerId = normalizeId(userId, 'userId', 100);
+    const id = normalizePlaylistId(playlistId);
+    const key = normalizeId(songKey, 'songKey', 512);
+    return this.withTransaction(() => {
+      if (!this.getPlaylist(ownerId, id)) return false;
+      const result = this.database
+        .prepare('DELETE FROM playlist_songs WHERE playlist_id = ? AND song_key = ?')
+        .run(id, key);
+      if (!result.changes) return false;
+      this.database
+        .prepare(`
+          UPDATE playlist_songs
+          SET position = (
+            SELECT COUNT(*) FROM playlist_songs prior
+            WHERE prior.playlist_id = playlist_songs.playlist_id
+              AND prior.position < playlist_songs.position
+          )
+          WHERE playlist_id = ?
+        `)
+        .run(id);
+      return true;
+    });
+  }
+
+  deletePlaylist(userId, playlistId) {
+    const ownerId = normalizeId(userId, 'userId', 100);
+    const id = normalizePlaylistId(playlistId);
+    return this.database
+      .prepare('DELETE FROM playlists WHERE user_id = ? AND playlist_id = ?')
+      .run(ownerId, id).changes > 0;
+  }
+
   close() {
     this.database.close();
   }
@@ -439,6 +613,77 @@ function normalizeProfileText(value, fallback, maxLength) {
   const text = String(value || '').trim();
   return (text || fallback).slice(0, maxLength);
 }
+function normalizeId(value, field, maxLength) {
+  if (typeof value !== 'string') throw new TypeError(`${field} must be a string`);
+  const normalized = value.trim();
+  if (!normalized || normalized.length > maxLength) {
+    throw new RangeError(`${field} must be between 1 and ${maxLength} characters`);
+  }
+  return normalized;
+}
+
+function normalizePlaylistId(value) {
+  const id = typeof value === 'string' && value.trim() ? Number(value) : value;
+  if (!Number.isSafeInteger(id) || id < 1) throw new RangeError('playlistId must be a positive integer');
+  return id;
+}
+
+function normalizeName(value) {
+  if (typeof value !== 'string') throw new TypeError('playlist name must be a string');
+  const name = value.trim();
+  if (!name || name.length > 100) throw new RangeError('playlist name must be between 1 and 100 characters');
+  return name;
+}
+
+function normalizeLimit(value, fallback) {
+  const limit = Number(value);
+  if (!Number.isInteger(limit) || limit < 1) return fallback;
+  return Math.min(limit, fallback);
+}
+
+function normalizeSong(songRecord) {
+  if (!songRecord || typeof songRecord !== 'object' || Array.isArray(songRecord)) {
+    throw new TypeError('songRecord must be an object');
+  }
+  const songKey = normalizeId(songRecord.songKey, 'songKey', 512);
+  const url = normalizeId(songRecord.url, 'url', 2048);
+  const title = normalizeProfileText(songRecord.title, 'Unknown track', 200);
+  const thumbnail = normalizeProfileText(songRecord.thumbnail, '', 2048);
+  const uploader = normalizeProfileText(songRecord.uploader, '', 200);
+  const duration = Number(songRecord.durationSeconds ?? 0);
+  if (!Number.isFinite(duration) || duration < 0 || !Number.isSafeInteger(Math.floor(duration))) {
+    throw new RangeError('durationSeconds must be a non-negative number');
+  }
+  return {
+    songKey,
+    url,
+    title,
+    durationSeconds: Math.floor(duration),
+    thumbnail,
+    uploader,
+  };
+}
+
+function normalizeSongRow(row) {
+  return {
+    songKey: row.song_key,
+    url: row.url,
+    title: row.title,
+    durationSeconds: Number(row.duration_seconds),
+    thumbnail: row.thumbnail,
+    uploader: row.uploader,
+  };
+}
+
+function normalizePlaylistRow(row) {
+  return {
+    playlistId: Number(row.playlist_id),
+    name: row.name,
+    songCount: Number(row.song_count),
+    createdAt: row.created_at,
+  };
+}
+
 
 function parseJson(value, fallback) {
   try {

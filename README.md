@@ -32,6 +32,7 @@ vibes-discord/
 │   └── music/
 │       ├── commands.js
 │       ├── interactions.js
+│       ├── library.js
 │       ├── player.js
 │       ├── ui.js
 │       └── index.js
@@ -65,7 +66,7 @@ vibes-discord/
   - `loop`: Mode repeat (Off, Song, Queue).
   - `volume`: Atur volume (0% - 100%; 0 = mute).
   - `autoplay`: Ambil satu rekomendasi terkait dari YouTube ketika antrean habis. Nonaktif secara default.
-- **Interactive UI Buttons**: Pesan status musik dilengkapi tombol kontrol langsung (⏮️ Prev, ⏯️ Pause/Resume, ⏭️ Skip, 🔀 Shuffle, 🔉/🔊 Volume, 🔄 Autoplay, ⏹️ Stop, 🔁 Loop, 📜 Antrean).
+- **Personal Music Library**: Tombol ❤️ Like dan 🎶 Playlist pada player; koleksi liked songs dan playlist pribadi tersimpan di SQLite.
 
 ## 👤 Profile Musik
 
@@ -87,14 +88,24 @@ Data disimpan sebagai aggregate activity. URL media tidak disimpan; track identi
 | Slash Command | Prefix Command | Deskripsi |
 | :--- | :--- | :--- |
 | `/play <query>` | `!play <query>` atau `!p <query>` | Putar link video, playlist, atau kata kunci judul YouTube |
+| `/like` | `!like`, `!love`, `!favorite` | Toggle lagu yang sedang diputar ke koleksi liked songs |
+| `/liked list|play|shuffle|remove` | `!liked list|play|shuffle|remove <song-key>` | Lihat, putar, acak, atau hapus liked songs |
+| `/playlist list` | `!playlist list` | Lihat playlist pribadi |
+| `/playlist create <name>` | `!playlist create <name>` | Buat playlist pribadi |
+| `/playlist add <id>` | `!playlist add <id>` | Tambahkan lagu yang sedang diputar |
+| `/playlist show <id>` | `!playlist show <id>` | Lihat isi playlist |
+| `/playlist play <id>` | `!playlist play <id>` | Putar seluruh playlist |
+| `/playlist shuffle <id>` | `!playlist shuffle <id>` | Acak lalu putar playlist |
+| `/playlist remove <id> <song-key>` | `!playlist remove <id> <song-key>` | Hapus lagu dari playlist |
+| `/playlist delete <id>` | `!playlist delete <id>` | Hapus playlist beserta isinya |
 | `/skip` | `!skip`, `!next`, `!s` | Lewati lagu yang sedang diputar |
 | `/prev` | `!prev`, `!previous`, `!back` | Putar kembali lagu sebelumnya |
-| `/queue` | `!queue`, `!q`, `!playlist`, `!list` | Lihat daftar antrean musik |
+| `/queue` | `!queue`, `!q`, `!list` | Lihat daftar antrean musik |
 | `/pause` | `!pause` | Jeda pemutaran lagu |
 | `/resume` | `!resume`, `!unpause` | Lanjutkan pemutaran lagu |
 | `/stop` | `!stop`, `!leave` | Hentikan pemutaran dan kosongkan antrean |
 | `/loop [mode]` | `!loop`, `!repeat` | Atur perulangan (Lagu / Playlist / Off) |
-| `/shuffle` | `!shuffle`, `!mix` | Acak urutan playlist |
+| `/shuffle` | `!shuffle`, `!mix` | Acak urutan antrean |
 | `/volume <0-100>` | `!volume <0-100>`, `!vol`, `!v` | Atur intensitas suara; `0` untuk mute |
 | `/autoplay [enabled]` | `!autoplay on|off`, `!auto` | Aktifkan rekomendasi YouTube saat antrean habis |
 | `/nowplaying` | `!nowplaying`, `!np`, `!current` | Lihat detail lagu yang sedang berjalan |

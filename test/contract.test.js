@@ -22,6 +22,14 @@ import {
 
 import { ProxyPool } from '../core/proxy-pool.js';
 import { createStreamRelay } from '../core/stream-relay.js';
+import {
+  createPlaylistSelectMenu,
+  likeCommand,
+  likedCommand,
+  normalizeSong,
+  playlistCommand,
+} from '../features/music/library.js';
+
 
 test('empty YouTube song names recover from fetched metadata', () => {
   const song = {
@@ -74,6 +82,37 @@ test('profile activity persists, ranks, and rolls back invalid settings', () => 
 
   assert.throws(() => store.updateGuildSettings('rollback', { defaultVolume: -1 }));
   assert.equal(store.getGuildSettings('rollback'), null);
+  store.close();
+});
+
+test('personal liked songs and playlists persist with owner isolation', () => {
+  const store = openStore(':memory:');
+  const songA = {
+    songKey: 'video-a',
+    url: 'https://youtube.example/a',
+    title: 'Track A',
+    durationSeconds: 120,
+    thumbnail: '',
+    uploader: 'Artist A',
+  };
+  const songB = { ...songA, songKey: 'video-b', url: 'https://youtube.example/b', title: 'Track B' };
+
+  assert.equal(store.toggleLikedSong('user-a', songA).liked, true);
+  assert.deepEqual(store.listLikedSongs('user-a'), [songA]);
+  assert.equal(store.toggleLikedSong('user-a', songA).liked, false);
+  assert.deepEqual(store.listLikedSongs('user-a'), []);
+
+  const playlist = store.createPlaylist('user-a', 'Favorites');
+  assert.equal(store.addPlaylistSong('user-a', playlist.playlistId, songA).title, 'Track A');
+  assert.equal(store.addPlaylistSong('user-a', playlist.playlistId, songB).title, 'Track B');
+  assert.equal(store.addPlaylistSong('user-a', playlist.playlistId, songA).title, 'Track A');
+  assert.deepEqual(store.listPlaylistSongs('user-a', playlist.playlistId), [songA, songB]);
+  assert.deepEqual(store.listPlaylistSongs('user-b', playlist.playlistId), []);
+  assert.equal(store.removePlaylistSong('user-a', playlist.playlistId, 'video-a'), true);
+  assert.deepEqual(store.listPlaylistSongs('user-a', playlist.playlistId), [songB]);
+  assert.equal(store.deletePlaylist('user-b', playlist.playlistId), false);
+  assert.equal(store.deletePlaylist('user-a', playlist.playlistId), true);
+  assert.equal(store.getPlaylist('user-a', playlist.playlistId), null);
   store.close();
 });
 
@@ -181,6 +220,8 @@ test('player controls expose autoplay and bounded volume buttons', () => {
     'music_autoplay',
     'music_volume_up',
     'music_queue',
+    'music_like',
+    'music_playlist',
   ]);
   assert.equal(buttons.find((button) => button.custom_id === 'music_autoplay').label, 'Auto: On');
   assert.equal(buttons.find((button) => button.custom_id === 'music_skip').disabled, false);
@@ -191,6 +232,21 @@ test('player controls expose autoplay and bounded volume buttons', () => {
   assert.equal(adjustVolume(100, 1), 100);
   assert.equal(adjustVolume(50, 1), 60);
 });
+test('personal music commands and save menu expose the library UX', () => {
+  assert.equal(likeCommand.data.name, 'like');
+  assert.equal(likedCommand.data.name, 'liked');
+  assert.equal(playlistCommand.data.name, 'playlist');
+  assert.equal(normalizeSong({
+    id: 'video-a',
+    url: 'https://youtube.example/a',
+    name: 'Track A',
+    duration: 60,
+  }).songKey, 'https://youtube.example/a');
+  const menu = createPlaylistSelectMenu([{ playlistId: 1, name: 'Favorites', songCount: 2 }]).toJSON();
+  assert.equal(menu.components[0].custom_id, 'music_playlist_select');
+  assert.equal(menu.components[0].options[0].value, '1');
+});
+
 
 test('po token provider retries then gives up without blocking startup', async () => {
   let calls = 0;

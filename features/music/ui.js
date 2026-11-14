@@ -124,5 +124,18 @@ export function createPlayerButtons(queue, { autoplayEnabled = false } = {}) {
       .setStyle(ButtonStyle.Secondary),
   );
 
-  return [row1, row2];
+  const row3 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('music_like')
+      .setLabel('Like')
+      .setEmoji('❤️')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId('music_playlist')
+      .setLabel('Playlist')
+      .setEmoji('🎶')
+      .setStyle(ButtonStyle.Secondary),
+  );
+
+  return [row1, row2, row3];
 }

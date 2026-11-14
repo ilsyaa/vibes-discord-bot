@@ -114,4 +114,52 @@ export const migrations = [
         ADD COLUMN access_token_encrypted TEXT;
     `,
   },
+  {
+    version: 5,
+    name: 'personal-music-library',
+    sql: `
+      CREATE TABLE IF NOT EXISTS liked_songs (
+        user_id TEXT NOT NULL,
+        song_key TEXT NOT NULL,
+        url TEXT NOT NULL,
+        title TEXT NOT NULL,
+        duration_seconds INTEGER NOT NULL DEFAULT 0,
+        thumbnail TEXT NOT NULL DEFAULT '',
+        uploader TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (user_id, song_key)
+      ) STRICT;
+
+      CREATE INDEX IF NOT EXISTS liked_songs_user_idx
+        ON liked_songs (user_id, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS playlists (
+        playlist_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (user_id, name)
+      ) STRICT;
+
+      CREATE INDEX IF NOT EXISTS playlists_user_idx
+        ON playlists (user_id, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS playlist_songs (
+        playlist_id INTEGER NOT NULL,
+        song_key TEXT NOT NULL,
+        url TEXT NOT NULL,
+        title TEXT NOT NULL,
+        duration_seconds INTEGER NOT NULL DEFAULT 0,
+        thumbnail TEXT NOT NULL DEFAULT '',
+        uploader TEXT NOT NULL DEFAULT '',
+        position INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (playlist_id, song_key),
+        FOREIGN KEY (playlist_id) REFERENCES playlists (playlist_id) ON DELETE CASCADE
+      ) STRICT;
+
+      CREATE INDEX IF NOT EXISTS playlist_songs_position_idx
+        ON playlist_songs (playlist_id, position);
+    `,
+  },
 ];

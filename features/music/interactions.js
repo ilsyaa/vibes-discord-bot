@@ -1,9 +1,16 @@
 import { getDisTube, skipWithAutoplay, ensureSongMetadata } from './player.js';
 import { clampVolume, formatRepeatMode, createNowPlayingEmbed, createPlayerButtons, formatSongLink, getSongTitle } from './ui.js';
+import {
+  createPlaylistSelectMenu,
+  handlePlaylistSelect,
+  saveCurrentSongToLiked,
+} from './library.js';
 
 export async function handleMusicButton(interaction, client) {
+  if (interaction.isStringSelectMenu?.()) {
+    return handlePlaylistSelect(interaction, client);
+  }
   if (!interaction.isButton()) return false;
-
   const { customId, guildId, member } = interaction;
   if (!customId.startsWith('music_')) return false;
 
@@ -29,6 +36,34 @@ export async function handleMusicButton(interaction, client) {
 
   try {
     switch (customId) {
+      case 'music_like': {
+        const result = await saveCurrentSongToLiked(client, guildId, member.user.id);
+        await interaction.reply({
+          content: result.liked
+            ? `❤️ **${result.song.title}** ditambahkan ke lagu yang disukai.`
+            : `💔 **${result.song.title}** dihapus dari lagu yang disukai.`,
+          ephemeral: true,
+        });
+        break;
+      }
+
+      case 'music_playlist': {
+        const playlists = client.store?.listPlaylists?.(member.user.id) || [];
+        if (!playlists.length) {
+          await interaction.reply({
+            content: '❌ Belum ada playlist. Buat playlist dengan `/playlist create` terlebih dahulu.',
+            ephemeral: true,
+          });
+          break;
+        }
+        await interaction.reply({
+          content: 'Pilih playlist untuk menyimpan lagu yang sedang diputar:',
+          components: [createPlaylistSelectMenu(playlists)],
+          ephemeral: true,
+        });
+        break;
+      }
+
       case 'music_prev': {
         try {
           const song = await queue.previous();
