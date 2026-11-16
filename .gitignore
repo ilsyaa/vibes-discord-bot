@@ -4,3 +4,4 @@ cookies.json
 *.log
 logs/
 .DS_Store
+data/

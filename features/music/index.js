@@ -12,23 +12,22 @@ import {
   shuffleCommand,
   volumeCommand,
   nowPlayingCommand,
+  autoplayCommand,
+  diagnoseCommand,
 } from './commands.js';
-
+import { likeCommand, likedCommand, playlistCommand, libraryCommand } from './library.js';
 export default {
   name: 'Music',
   description: 'Pemutar musik YouTube performa tinggi berbasis Stream Mode FFmpeg',
 
-  // Hook inisialisasi engine DisTube saat bot start
   async init(client) {
     await initMusicPlayer(client);
   },
 
-  // Hook penanganan interaksi tombol (UI Buttons)
-  async onInteraction(interaction) {
-    return handleMusicButton(interaction);
+  async onInteraction(interaction, client) {
+    return handleMusicButton(interaction, client);
   },
 
-  // Daftar perintah
   commands: [
     playCommand,
     skipCommand,
@@ -41,5 +40,12 @@ export default {
     shuffleCommand,
     volumeCommand,
     nowPlayingCommand,
+    autoplayCommand,
+    diagnoseCommand,
+
+    likeCommand,
+    likedCommand,
+    playlistCommand,
+    libraryCommand,
   ],
 };

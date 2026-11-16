@@ -1,6 +1,6 @@
-import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
-import { getDisTube } from './player.js';
-import { formatRepeatMode, createNowPlayingEmbed, createPlayerButtons } from './ui.js';
+import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
+import { getDisTube, skipWithAutoplay, ensureSongMetadata } from './player.js';
+import { formatRepeatMode, createNowPlayingEmbed, createPlayerButtons, formatSongLink, getSongTitle } from './ui.js';
 
 export const playCommand = {
   data: new SlashCommandBuilder()
@@ -14,10 +14,16 @@ export const playCommand = {
     ),
   aliases: ['p'],
 
-  async executeSlash(interaction) {
+  async executeSlash(interaction, client) {
     const distube = getDisTube();
     const query = interaction.options.getString('query');
     const member = interaction.member;
+    if (!isMusicChannelAllowed(interaction.guildId, interaction.channelId, client)) {
+      return interaction.reply({
+        content: '❌ Server ini menetapkan channel musik khusus. Gunakan channel yang dikonfigurasi.',
+        ephemeral: true,
+      });
+    }
     const voiceChannel = member.voice?.channel;
 
     if (!voiceChannel) {
@@ -42,6 +48,7 @@ export const playCommand = {
         textChannel: interaction.channel,
         member,
       });
+      applyGuildSettings(distube, interaction.guildId, client);
 
       return interaction.editReply({
         content: `🔍 Memproses permintaan: **${query}**...`,
@@ -54,13 +61,16 @@ export const playCommand = {
     }
   },
 
-  async executePrefix(message, args) {
+  async executePrefix(message, args, client) {
     const distube = getDisTube();
     if (!args.length) {
       return message.reply('❌ Masukkan link YouTube atau judul lagu! Contoh: `!play lofi beats` atau `!play <link>`');
     }
 
     const query = args.join(' ');
+    if (!isMusicChannelAllowed(message.guildId, message.channelId, client)) {
+      return message.reply('❌ Server ini menetapkan channel musik khusus. Gunakan channel yang dikonfigurasi.');
+    }
     const voiceChannel = message.member.voice?.channel;
 
     if (!voiceChannel) {
@@ -79,14 +89,40 @@ export const playCommand = {
         textChannel: message.channel,
         member: message.member,
       });
-
+      applyGuildSettings(distube, message.guildId, client);
       loadingMsg.delete().catch(() => {});
     } catch (err) {
       console.error('Error prefix play:', err);
-      loadingMsg.edit(`⚠️ Gagal memutar lagu: \`${err.message}\``).catch(() => {});
+      await editLoadingMessage(
+        loadingMsg,
+        message,
+        `⚠️ Gagal memutar lagu: \`${err.message}\``,
+      );
     }
   },
 };
+
+async function editLoadingMessage(loadingMsg, sourceMessage, content) {
+  try {
+    await loadingMsg.edit(content);
+  } catch {
+    await sourceMessage.reply(content).catch(() => {});
+  }
+}
+function applyGuildSettings(distube, guildId, client) {
+  try {
+    const settings = client.store?.ensureGuildSettings?.(guildId);
+    const queue = distube.getQueue(guildId);
+    if (!settings || !queue || typeof queue.setVolume !== 'function') return;
+    queue.setVolume(settings.defaultVolume);
+  } catch (error) {
+    console.error('Guild music settings failed:', error.message);
+  }
+}
+function isMusicChannelAllowed(guildId, channelId, client) {
+  const settings = client.store?.getGuildSettings?.(guildId);
+  return !settings?.musicChannelId || settings.musicChannelId === channelId;
+}
 
 export const skipCommand = {
   data: new SlashCommandBuilder()
@@ -105,26 +141,34 @@ export const skipCommand = {
       });
     }
 
+    await interaction.deferReply();
     try {
       const song = await queue.skip();
-      return interaction.reply({
-        content: `⏭️ Berhasil melewati lagu! Sekarang memutar: **${song.name}**`,
+      await ensureSongMetadata(song);
+      return interaction.editReply({
+        content: `⏭️ Berhasil melewati lagu! Sekarang memutar: **${getSongTitle(song)}**`,
       });
     } catch (err) {
       if (err.errorCode === 'NO_UP_NEXT' || err.message.includes('NO_UP_NEXT')) {
+        await interaction.editReply({ content: '🔍 Mencari rekomendasi autoplay berikutnya...' });
+        const song = await skipWithAutoplay(interaction.client, queue);
+        if (song) {
+          return interaction.editReply({
+            content: `⏭️ Berhasil melewati lagu! Sekarang memutar: **${getSongTitle(song)}**`,
+          });
+        }
         await queue.stop();
-        return interaction.reply({
+        return interaction.editReply({
           content: '⏭️ Tidak ada lagu berikutnya di antrean playlist. Pemutaran dihentikan.',
         });
       }
-      return interaction.reply({
+      return interaction.editReply({
         content: `⚠️ Gagal melewati lagu: \`${err.message}\``,
-        ephemeral: true,
       });
     }
   },
 
-  async executePrefix(message) {
+  async executePrefix(message, _args, client) {
     const distube = getDisTube();
     const queue = distube.getQueue(message.guildId);
 
@@ -134,9 +178,12 @@ export const skipCommand = {
 
     try {
       const song = await queue.skip();
-      return message.reply(`⏭️ Berhasil melewati lagu! Sekarang memutar: **${song.name}**`);
+      await ensureSongMetadata(song);
+      return message.reply(`⏭️ Berhasil melewati lagu! Sekarang memutar: **${getSongTitle(song)}**`);
     } catch (err) {
       if (err.errorCode === 'NO_UP_NEXT' || err.message.includes('NO_UP_NEXT')) {
+        const song = await skipWithAutoplay(client, queue);
+        if (song) return message.reply(`⏭️ Berhasil melewati lagu! Sekarang memutar: **${getSongTitle(song)}**`);
         await queue.stop();
         return message.reply('⏭️ Tidak ada lagu berikutnya di antrean playlist. Pemutaran dihentikan.');
       }
@@ -164,8 +211,9 @@ export const prevCommand = {
 
     try {
       const song = await queue.previous();
+      await ensureSongMetadata(song);
       return interaction.reply({
-        content: `⏮️ Memutar kembali lagu sebelumnya: **${song.name}**`,
+        content: `⏮️ Memutar kembali lagu sebelumnya: **${getSongTitle(song)}**`,
       });
     } catch (err) {
       if (err.errorCode === 'NO_PREVIOUS' || err.message.includes('NO_PREVIOUS')) {
@@ -191,7 +239,8 @@ export const prevCommand = {
 
     try {
       const song = await queue.previous();
-      return message.reply(`⏮️ Memutar kembali lagu sebelumnya: **${song.name}**`);
+      await ensureSongMetadata(song);
+      return message.reply(`⏮️ Memutar kembali lagu sebelumnya: **${getSongTitle(song)}**`);
     } catch (err) {
       if (err.errorCode === 'NO_PREVIOUS' || err.message.includes('NO_PREVIOUS')) {
         return message.reply('❌ Tidak ada lagu sebelumnya dalam riwayat pemutaran!');
@@ -420,13 +469,13 @@ export const shuffleCommand = {
 export const volumeCommand = {
   data: new SlashCommandBuilder()
     .setName('volume')
-    .setDescription('Atur volume pemutaran musik (1 - 100%)')
+    .setDescription('Atur volume pemutaran musik (0 - 100%)')
     .addIntegerOption((opt) =>
       opt
         .setName('percent')
-        .setDescription('Tingkat volume dalam persen (1 - 100)')
+        .setDescription('Tingkat volume dalam persen (0 - 100)')
         .setRequired(true)
-        .setMinValue(1)
+        .setMinValue(0)
         .setMaxValue(100),
     ),
   aliases: ['vol', 'v'],
@@ -451,8 +500,8 @@ export const volumeCommand = {
     if (!queue) return message.reply('❌ Tidak ada musik yang sedang diputar!');
 
     const volume = parseInt(args[0], 10);
-    if (isNaN(volume) || volume < 1 || volume > 100) {
-      return message.reply('❌ Masukkan angka volume antara 1 sampai 100! Contoh: `!volume 80`');
+    if (isNaN(volume) || volume < 0 || volume > 100) {
+      return message.reply('❌ Masukkan angka volume antara 0 sampai 100! Contoh: `!volume 80`');
     }
 
     queue.setVolume(volume);
@@ -460,13 +509,61 @@ export const volumeCommand = {
   },
 };
 
+export const autoplayCommand = {
+  data: new SlashCommandBuilder()
+    .setName('autoplay')
+    .setDescription('Aktifkan rekomendasi YouTube saat antrean habis')
+    .addBooleanOption((option) =>
+      option
+        .setName('enabled')
+        .setDescription('Aktifkan atau matikan autoplay')
+        .setRequired(false),
+    ),
+  aliases: ['auto'],
+
+  async executeSlash(interaction, client) {
+    const enabled = interaction.options.getBoolean('enabled');
+    const settings = updateAutoplay(client, interaction.guildId, enabled, interaction.user.id);
+    return interaction.reply({
+      content: formatAutoplayStatus(settings.autoplay),
+      ephemeral: true,
+    });
+  },
+
+  async executePrefix(message, args, client) {
+    const value = (args[0] || 'status').toLowerCase();
+    if (!['on', 'off', 'status'].includes(value)) {
+      return message.reply('❌ Gunakan `!autoplay on`, `!autoplay off`, atau `!autoplay status`.');
+    }
+
+    const enabled = value === 'status' ? null : value === 'on';
+    const settings = updateAutoplay(client, message.guildId, enabled, message.author.id);
+    return message.reply(formatAutoplayStatus(settings.autoplay));
+  },
+};
+
+function updateAutoplay(client, guildId, enabled, actorId) {
+  const current = client.store?.ensureGuildSettings?.(guildId) || { autoplay: false };
+  if (enabled === null) return current;
+  return client.store?.updateGuildSettings?.(guildId, { autoplay: enabled }, actorId) || {
+    ...current,
+    autoplay: enabled,
+  };
+}
+
+function formatAutoplayStatus(enabled) {
+  return enabled
+    ? '✅ Autoplay YouTube aktif. Bot akan memilih rekomendasi terkait saat antrean habis.'
+    : '⏹️ Autoplay YouTube nonaktif. Bot berhenti setelah antrean habis.';
+}
+
 export const nowPlayingCommand = {
   data: new SlashCommandBuilder()
     .setName('nowplaying')
     .setDescription('Tampilkan informasi lagu yang sedang diputar saat ini'),
   aliases: ['np', 'current'],
 
-  async executeSlash(interaction) {
+  async executeSlash(interaction, client) {
     const distube = getDisTube();
     const queue = distube.getQueue(interaction.guildId);
 
@@ -478,13 +575,17 @@ export const nowPlayingCommand = {
     }
 
     const song = queue.songs[0];
-    return interaction.reply({
+    await interaction.deferReply();
+    await ensureSongMetadata(song);
+    return interaction.editReply({
       embeds: [createNowPlayingEmbed(queue, song)],
-      components: createPlayerButtons(queue),
+      components: createPlayerButtons(queue, {
+        autoplayEnabled: client.store?.getGuildSettings?.(queue.id)?.autoplay === true,
+      }),
     });
   },
 
-  async executePrefix(message) {
+  async executePrefix(message, _args, client) {
     const distube = getDisTube();
     const queue = distube.getQueue(message.guildId);
 
@@ -493,24 +594,123 @@ export const nowPlayingCommand = {
     }
 
     const song = queue.songs[0];
+    await ensureSongMetadata(song);
     return message.reply({
       embeds: [createNowPlayingEmbed(queue, song)],
-      components: createPlayerButtons(queue),
+      components: createPlayerButtons(queue, {
+        autoplayEnabled: client.store?.getGuildSettings?.(queue.id)?.autoplay === true,
+      }),
     });
   },
 };
+export const diagnoseCommand = {
+  data: new SlashCommandBuilder()
+    .setName('diagnose')
+    .setDescription('Periksa voice channel, permission, queue, dan koneksi bot'),
+  aliases: ['diag', 'health'],
+
+  async executeSlash(interaction) {
+    return interaction.reply({
+      embeds: [buildDiagnosticsEmbed(
+        interaction.guild,
+        interaction.member,
+        interaction.channel,
+        interaction.client,
+      )],
+      ephemeral: true,
+    });
+  },
+
+  async executePrefix(message, args, client) {
+    return message.reply({
+      embeds: [buildDiagnosticsEmbed(message.guild, message.member, message.channel, client)],
+    });
+  },
+};
+
+function buildDiagnosticsEmbed(guild, member, textChannel, client) {
+  const botMember = guild.members.me;
+  const userVoice = member?.voice?.channel;
+  const botVoice = botMember?.voice?.channel;
+  const queue = getDisTube()?.getQueue(guild.id);
+  const textPermissions = botMember ? textChannel?.permissionsFor(botMember) : null;
+  const voicePermissions = botMember && userVoice ? userVoice.permissionsFor(botMember) : null;
+  const websocketPing = client.ws.ping >= 0 ? `${Math.round(client.ws.ping)}ms` : 'Belum tersedia';
+
+  const voiceAlignment = !botVoice
+    ? 'ℹ️ Bot belum berada di voice channel.'
+    : !userVoice
+      ? `ℹ️ Bot berada di <#${botVoice.id}>.`
+      : botVoice.id === userVoice.id
+        ? `✅ Satu channel: <#${userVoice.id}>`
+        : `❌ Bot berada di <#${botVoice.id}>. Join channel yang sama.`;
+
+  const voiceStatus = userVoice
+    ? `✅ User: <#${userVoice.id}>`
+    : '❌ Join voice channel terlebih dahulu.';
+
+  const queueStatus = queue
+    ? `✅ ${queue.songs.length} lagu • ${queue.paused ? 'paused' : 'playing'}`
+    : 'ℹ️ Tidak ada queue aktif.';
+
+  return new EmbedBuilder()
+    .setColor(0x5865F2)
+    .setTitle('🩺 Diagnostik Music Bot')
+    .setDescription('Pemeriksaan read-only untuk menemukan penyebab playback gagal.')
+    .addFields(
+      { name: '🎙️ Voice User', value: voiceStatus, inline: false },
+      { name: '🔗 Voice Alignment', value: voiceAlignment, inline: false },
+      {
+        name: '🔊 Voice Permissions',
+        value: userVoice
+          ? formatPermissionStatus(voicePermissions, [
+            [PermissionFlagsBits.ViewChannel, 'View Channel'],
+            [PermissionFlagsBits.Connect, 'Connect'],
+            [PermissionFlagsBits.Speak, 'Speak'],
+          ])
+          : '⚠️ Unknown sampai user join voice channel.',
+        inline: false,
+      },
+      {
+        name: '💬 Text Permissions',
+        value: formatPermissionStatus(textPermissions, [
+          [PermissionFlagsBits.ViewChannel, 'View Channel'],
+          [PermissionFlagsBits.SendMessages, 'Send Messages'],
+          [PermissionFlagsBits.EmbedLinks, 'Embed Links'],
+        ]),
+        inline: false,
+      },
+      { name: '📑 Queue', value: queueStatus, inline: true },
+      { name: '⚡ Discord WS', value: websocketPing, inline: true },
+    )
+    .setFooter({ text: 'Read-only diagnostic • tidak mengubah konfigurasi' })
+    .setTimestamp();
+}
+
+function formatPermissionStatus(permissions, requiredPermissions) {
+  if (!permissions) return '⚠️ Status permission belum tersedia.';
+
+  const missing = requiredPermissions
+    .filter(([permission]) => !permissions.has(permission))
+    .map(([, name]) => name);
+
+  return missing.length
+    ? `❌ Missing: ${missing.join(', ')}`
+    : '✅ Semua permission yang dibutuhkan tersedia.';
+}
+
 
 function buildQueueEmbed(queue) {
   const currentSong = queue.songs[0];
   const upcomingSongs = queue.songs.slice(1, 11);
 
-  let description = `**Sedang Diputar:**\n▶️ [${currentSong.name}](${currentSong.url}) | \`${currentSong.formattedDuration}\` (oleh: <@${currentSong.user?.id}>)\n\n`;
+  let description = `**Sedang Diputar:**\n▶️ ${formatSongLink(currentSong)} | \`${currentSong.formattedDuration}\` (oleh: <@${currentSong.user?.id}>)\n\n`;
 
   if (upcomingSongs.length > 0) {
     description += '**Daftar Lagu Berikutnya:**\n';
     description += upcomingSongs
       .map((song, index) => {
-        return `\`${index + 1}.\` [${song.name}](${song.url}) | \`${song.formattedDuration}\` (oleh: <@${song.user?.id}>)`;
+        return `\`${index + 1}.\` ${formatSongLink(song)} | \`${song.formattedDuration}\` (oleh: <@${song.user?.id}>)`;
       })
       .join('\n');
 
