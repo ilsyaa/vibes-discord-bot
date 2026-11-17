@@ -1,5 +1,7 @@
 import { SlashCommandBuilder, EmbedBuilder, AttachmentBuilder } from 'discord.js';
 import { config } from '../../core/config.js';
+import { renderProfileCard } from './profile-card.js';
+import { getMusicHealth } from '../music/player.js';
 export const pingCommand = {
   data: new SlashCommandBuilder()
     .setName('ping')
@@ -104,6 +106,10 @@ function buildStatsEmbed(client) {
     commands: 0,
     days: 0,
   };
+  const music = getMusicHealth();
+  const proxyStatus = music.proxy.total
+    ? `${music.proxy.available}/${music.proxy.total} siap • ${music.proxy.failures} gagal`
+    : 'Koneksi langsung';
 
   return new EmbedBuilder()
     .setColor(0x5865F2)
@@ -119,6 +125,8 @@ function buildStatsEmbed(client) {
       { name: '🎵 Plays', value: `${metrics.plays}`, inline: true },
       { name: '❌ Playback Failures', value: `${metrics.failures}`, inline: true },
       { name: '🗓️ Metric Days', value: `${metrics.days}`, inline: true },
+      { name: '🎼 YouTube', value: `${music.ready ? 'Ready' : 'Starting'} • warm-up ${music.warmup}`, inline: true },
+      { name: '🌐 Proxy Pool', value: proxyStatus, inline: true },
       { name: '🟢 Runtime', value: `Node.js ${process.version}`, inline: false },
     )
     .setFooter({ text: 'Vibes Discord Bot • Operational stats' })
@@ -172,12 +180,21 @@ function buildHelpEmbed(client) {
     .setDescription(`Bot ini mendukung **Slash Command (/)** dan **Prefix Command (${prefix})**.`)
     .addFields(
       {
-        name: '🎵 Musik (YouTube Stream Mode)',
+        name: '🎵 Musik: Putar & Navigasi',
         value: [
           `\`/play <query>\` atau \`${prefix}play <query>\` - Putar judul, link video, atau playlist YouTube`,
+          `\`/search <query>\` atau \`${prefix}search <query>\` - Cari dan pilih lagu`,
           `\`/skip\` atau \`${prefix}skip\` (\`${prefix}next\`, \`${prefix}s\`) - Lewati lagu berikutnya`,
           `\`/prev\` atau \`${prefix}prev\` (\`${prefix}previous\`, \`${prefix}back\`) - Putar lagu sebelumnya`,
+          `\`/jump <posisi>\` atau \`${prefix}jump <posisi>\` - Lompat ke lagu dalam antrean`,
+          `\`/seek <waktu>\` atau \`${prefix}seek <waktu>\` - Pindah posisi lagu`,
           `\`/queue\` atau \`${prefix}queue\` (\`${prefix}q\`, \`${prefix}playlist\`, \`${prefix}list\`) - Lihat antrean musik`,
+          `\`/nowplaying\` atau \`${prefix}nowplaying\` (\`${prefix}np\`, \`${prefix}current\`) - Lihat lagu yang sedang diputar`,
+        ].join('\n'),
+      },
+      {
+        name: '🎛️ Musik: Kontrol',
+        value: [
           `\`/pause\` atau \`${prefix}pause\` - Jeda musik`,
           `\`/resume\` atau \`${prefix}resume\` (\`${prefix}unpause\`) - Lanjutkan musik`,
           `\`/stop\` atau \`${prefix}stop\` (\`${prefix}leave\`, \`${prefix}disconnect\`, \`${prefix}dc\`) - Hentikan musik dan kosongkan antrean`,
@@ -185,7 +202,6 @@ function buildHelpEmbed(client) {
           `\`/shuffle\` atau \`${prefix}shuffle\` (\`${prefix}mix\`) - Acak antrean musik`,
           `\`/volume <0-100>\` atau \`${prefix}volume <0-100>\` (\`${prefix}vol\`, \`${prefix}v\`) - Atur volume`,
           `\`/autoplay [enabled]\` atau \`${prefix}autoplay [on|off|status]\` (\`${prefix}auto\`) - Atur rekomendasi otomatis`,
-          `\`/nowplaying\` atau \`${prefix}nowplaying\` (\`${prefix}np\`, \`${prefix}current\`) - Lihat lagu yang sedang diputar`,
           `\`/diagnose\` atau \`${prefix}diagnose\` (\`${prefix}diag\`, \`${prefix}health\`) - Periksa voice, permission, queue, dan koneksi`,
         ].join('\n'),
       },

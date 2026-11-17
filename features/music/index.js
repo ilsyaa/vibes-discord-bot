@@ -4,6 +4,8 @@ import {
   playCommand,
   skipCommand,
   prevCommand,
+  jumpCommand,
+  seekCommand,
   queueCommand,
   pauseCommand,
   resumeCommand,
@@ -16,6 +18,7 @@ import {
   diagnoseCommand,
 } from './commands.js';
 import { likeCommand, likedCommand, playlistCommand, libraryCommand } from './library.js';
+import { handleSearchSelection, searchCommand } from './search.js';
 export default {
   name: 'Music',
   description: 'Pemutar musik YouTube performa tinggi berbasis Stream Mode FFmpeg',
@@ -25,6 +28,7 @@ export default {
   },
 
   async onInteraction(interaction, client) {
+    if (await handleSearchSelection(interaction, client)) return true;
     return handleMusicButton(interaction, client);
   },
 
@@ -32,6 +36,8 @@ export default {
     playCommand,
     skipCommand,
     prevCommand,
+    jumpCommand,
+    seekCommand,
     queueCommand,
     pauseCommand,
     resumeCommand,
@@ -42,6 +48,7 @@ export default {
     nowPlayingCommand,
     autoplayCommand,
     diagnoseCommand,
+    searchCommand,
 
     likeCommand,
     likedCommand,

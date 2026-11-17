@@ -22,15 +22,72 @@ const recordedProfileTracks = new WeakSet();
 const autoplayInFlight = new Set();
 const autoplayRelatedCache = new Map();
 const autoplayRelatedInFlight = new Map();
+const youtubeHealth = {
+  warmup: 'idle',
+  lastWarmupAt: null,
+  lastStreamErrorAt: null,
+};
 
 
 export function getDisTube() {
   return distubeInstance;
 }
 
+export function getMusicHealth() {
+  return {
+    ready: Boolean(distubeInstance && youtubePluginInstance && youtubeStreamRelay),
+    poToken: Boolean(poTokenProvider),
+    warmup: youtubeHealth.warmup,
+    lastWarmupAt: youtubeHealth.lastWarmupAt,
+    lastStreamErrorAt: youtubeHealth.lastStreamErrorAt,
+    proxy: youtubeProxyPool?.snapshot?.() || {
+      total: 0,
+      available: 0,
+      busy: 0,
+      coolingDown: 0,
+      failures: 0,
+    },
+  };
+}
+
 export async function ensureSongMetadata(song) {
   await songMetadataResolver?.(song);
   return song;
+}
+
+export async function searchYoutube(query, limit = 5) {
+  if (!youtubePluginInstance) throw new Error('YouTube search belum siap.');
+  return youtubePluginInstance.search(query, { limit });
+}
+
+export async function refreshPlayerPanel(client, queue) {
+  const message = queue?._lastPlayerMessage;
+  const song = queue?.songs?.[0];
+  if (!message || !song) return false;
+  await ensureSongMetadata(song);
+  try {
+    await message.edit({
+      embeds: [createNowPlayingEmbed(queue, song)],
+      components: createPlayerButtons(queue, {
+        autoplayEnabled: client?.store?.getGuildSettings?.(queue.id)?.autoplay === true,
+      }),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function retirePlayerPanel(queue) {
+  const message = queue?._lastPlayerMessage;
+  if (!message) return false;
+  queue._lastPlayerMessage = null;
+  try {
+    await message.edit({ components: [] });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function recordProfileTrack(client, queue, song) {
@@ -194,6 +251,9 @@ export function hydrateSongMetadata(song, info) {
 }
 
 export async function initMusicPlayer(client) {
+  youtubeHealth.warmup = 'pending';
+  youtubeHealth.lastWarmupAt = null;
+  youtubeHealth.lastStreamErrorAt = null;
   let cookies;
   const cookiePath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../cookies.json');
   if (fs.existsSync(cookiePath)) {
@@ -335,7 +395,10 @@ export async function initMusicPlayer(client) {
         throw error;
       }
     },
-    onError: (error) => console.warn('YouTube relay stream failed:', error.message),
+    onError: (error) => {
+      youtubeHealth.lastStreamErrorAt = new Date().toISOString();
+      console.warn('YouTube relay stream failed:', error.message);
+    },
   });
   youtubePlugin.getStreamURL = async (song) => {
     if (!song?.url) throw new Error('YouTube song URL missing');
@@ -383,12 +446,16 @@ export async function initMusicPlayer(client) {
       const components = createPlayerButtons(queue, {
         autoplayEnabled: client.store?.getGuildSettings?.(queue.id)?.autoplay === true,
       });
-      const message = await queue.textChannel.send({
-        embeds: [embed],
-        components,
-      });
-
-      queue._lastPlayerMessage = message;
+      if (queue._lastPlayerMessage) {
+        try {
+          await queue._lastPlayerMessage.edit({ embeds: [embed], components });
+        } catch {
+          queue._lastPlayerMessage = null;
+        }
+      }
+      if (!queue._lastPlayerMessage) {
+        queue._lastPlayerMessage = await queue.textChannel.send({ embeds: [embed], components });
+      }
     } catch (err) {
       console.error('Error saat mengirim pesan playSong:', err.message);
     }
@@ -441,6 +508,7 @@ export async function initMusicPlayer(client) {
 
   distube.on('finish', async (queue) => {
     if (await autoplayNext(client, distube, youtubePlugin, queue)) return;
+    await retirePlayerPanel(queue);
     if (!queue.textChannel) return;
     const embed = new EmbedBuilder()
       .setColor(0xED4245)
@@ -450,7 +518,8 @@ export async function initMusicPlayer(client) {
     queue.textChannel.send({ embeds: [embed] }).catch(() => {});
   });
 
-  distube.on('empty', (queue) => {
+  distube.on('empty', async (queue) => {
+    await retirePlayerPanel(queue);
     if (!queue.textChannel) return;
     const embed = new EmbedBuilder()
       .setColor(0xED4245)
@@ -461,6 +530,7 @@ export async function initMusicPlayer(client) {
   });
 
   distube.on('error', (error, queue) => {
+    youtubeHealth.lastStreamErrorAt = new Date().toISOString();
     client.store?.recordMetric(queue?.id, 'failures');
     console.error('DisTube stream error:', error);
     if (queue && queue.textChannel) {
@@ -474,7 +544,10 @@ export async function initMusicPlayer(client) {
   });
 
   distubeInstance = distube;
-  void warmYoutubePipeline(youtubePlugin);
+  void warmYoutubePipeline(youtubePlugin).then((ready) => {
+    youtubeHealth.warmup = ready ? 'ready' : 'failed';
+    youtubeHealth.lastWarmupAt = new Date().toISOString();
+  });
   return distube;
 }
 
@@ -494,6 +567,7 @@ export async function closeMusicPlayer() {
   distubeInstance = null;
   autoplayRelatedCache.clear();
   autoplayRelatedInFlight.clear();
+  youtubeHealth.warmup = 'idle';
 
   await relay?.close?.().catch((error) => {
     console.warn('⚠️ Gagal menutup YouTube stream relay:', error.message);

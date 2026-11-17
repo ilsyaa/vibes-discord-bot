@@ -6,7 +6,7 @@ import {
 } from 'discord.js';
 import { config, validateRuntimeConfig } from './config.js';
 import { loadFeatures } from './loader.js';
-import { initLogger } from './logger.js';
+import { closeLogger, initLogger } from './logger.js';
 import { openStore } from './storage/database.js';
 import { startDashboard } from '../dashboard/server.js';
 import { closeMusicPlayer } from '../features/music/player.js';
@@ -29,7 +29,7 @@ client.aliases = new Collection();
 client.interactionHandlers = [];
 client.store = null;
 
-client.once('ready', () => {
+client.once('clientReady', () => {
   console.log(`🤖 Logged in sebagai ${client.user.tag}!`);
   console.log(`📡 Prefix teks: ${config.prefix} (Contoh: ${config.prefix}play atau ${config.prefix}help)`);
   console.log(`⚡ Slash commands aktif (/play, /queue, /ping, dll.)`);
@@ -132,6 +132,7 @@ async function shutdown() {
     store = null;
     client.store = null;
     client.destroy();
+    await closeLogger();
   })();
   return shutdownPromise;
 }
