@@ -1,220 +1,316 @@
 import { createCanvas, loadImage } from '@napi-rs/canvas';
 
-const WIDTH = 1200;
-const HEIGHT = 700;
-const avatarCache = new Map();
+/**
+ * Profile card renderer.
+ *
+ * Shares the visual language of the now-playing card: dark gradient, rounded
+ * panels, one accent gradient and no decorative noise. Height is measured from
+ * the actual rows so empty lists do not leave holes in the layout.
+ */
+
+const WIDTH = 900;
+const PAD = 28;
+const GAP = 16;
+const RADIUS = 24;
+const PANEL_RADIUS = 16;
+const AVATAR_SIZE = 96;
+const HEADER_HEIGHT = 152;
+const ROW_HEIGHT = 54;
+const CHIP_HEIGHT = 30;
+
+const EYEBROW_FONT = '700 12px sans-serif';
+const NAME_FONT = '700 34px sans-serif';
+const SUBTITLE_FONT = '500 15px sans-serif';
+const PANEL_TITLE_FONT = '700 12px sans-serif';
+const ROW_TITLE_FONT = '600 16px sans-serif';
+const ROW_META_FONT = '500 13px sans-serif';
+const CHIP_LABEL_FONT = '700 10px sans-serif';
+const CHIP_VALUE_FONT = '700 15px sans-serif';
+
+const ACCENT_START = '#5865f2';
+const ACCENT_END = '#a78bfa';
+
+const AVATAR_CACHE = new Map();
+const AVATAR_CACHE_LIMIT = 32;
+const AVATAR_TIMEOUT_MS = 6_000;
 
 export async function renderProfileCard({ displayName, avatarUrl, profile }) {
-  const canvas = createCanvas(WIDTH, HEIGHT);
-  const context = canvas.getContext('2d');
-  const safeProfile = profile || emptyProfile();
+  const safeProfile = profile ?? emptyProfile();
+  const measure = createCanvas(10, 10).getContext('2d');
 
-  drawBackground(context);
-  drawHeader(context, displayName, safeProfile.summary);
-  await drawAvatar(context, avatarUrl, displayName);
-  drawPanel(context, 64, 230, 520, 210, 'TOP SERVERS', safeProfile.topServers, formatServerRow);
-  drawPanel(context, 616, 230, 520, 210, 'TOP FRIENDS', safeProfile.topFriends, formatFriendRow);
-  drawPanel(context, 64, 470, 1072, 170, 'TOP TRACKS', safeProfile.topTracks, formatTrackRow);
+  const avatar = await loadAvatar(avatarUrl);
+  const layout = buildLayout(measure, safeProfile);
+
+  const canvas = createCanvas(WIDTH, Math.ceil(layout.height));
+  const ctx = canvas.getContext('2d');
+
+  paintBackground(ctx, canvas.height);
+  paintHeader(ctx, displayName, safeProfile.summary, avatar);
+  paintPanel(ctx, layout.servers);
+  paintPanel(ctx, layout.friends);
+  paintTracks(ctx, layout.tracks);
 
   return canvas.encode('png');
 }
 
-function drawBackground(context) {
-  const gradient = context.createLinearGradient(0, 0, WIDTH, HEIGHT);
-  gradient.addColorStop(0, '#17131a');
-  gradient.addColorStop(0.52, '#5b202d');
-  gradient.addColorStop(1, '#1b1118');
-  context.fillStyle = gradient;
-  context.fillRect(0, 0, WIDTH, HEIGHT);
+function buildLayout(ctx, profile) {
+  const columnWidth = Math.floor((WIDTH - PAD * 2 - GAP) / 2);
+  const servers = buildPanel('TOP SERVERS', profile.topServers, 'Belum ada aktivitas server', formatServerRow);
+  const friends = buildPanel('TOP FRIENDS', profile.topFriends, 'Belum ada listener bersama', formatFriendRow);
 
-  context.save();
-  context.globalAlpha = 0.12;
-  context.strokeStyle = '#f7cad7';
-  context.lineWidth = 5;
-  for (let x = -160; x < WIDTH + 240; x += 190) {
-    context.beginPath();
-    context.arc(x, 330, 90, Math.PI * 0.1, Math.PI * 1.7);
-    context.stroke();
-    context.beginPath();
-    context.moveTo(x + 80, 90);
-    context.lineTo(x + 160, 270);
-    context.stroke();
-  }
-  context.restore();
+  const sideHeight = Math.max(panelHeight(servers), panelHeight(friends));
+  const panelsTop = HEADER_HEIGHT;
+
+  const tracks = buildTrackPanel(profile.topTracks);
+  const tracksTop = panelsTop + sideHeight + GAP;
+  const height = tracksTop + panelHeight(tracks) + PAD;
+
+  return {
+    columnWidth,
+    height,
+    servers: { ...servers, x: PAD, y: panelsTop, width: columnWidth },
+    friends: { ...friends, x: PAD + columnWidth + GAP, y: panelsTop, width: columnWidth },
+    tracks: { ...tracks, x: PAD, y: tracksTop, width: WIDTH - PAD * 2 },
+  };
 }
 
-function drawHeader(context, displayName, summary) {
-  context.fillStyle = '#f4d9df';
-  context.font = '700 22px sans-serif';
-  context.fillText('VIBES PROFILE', 220, 48);
-
-  context.fillStyle = '#fff7f9';
-  context.font = '700 42px sans-serif';
-  context.fillText(truncate(context, displayName || 'Listener', 390), 220, 104);
-
-  context.fillStyle = '#f6b1c2';
-  context.font = '500 20px sans-serif';
-  context.fillText('Your music activity at a glance', 220, 140);
-
-  const stats = [
-    ['PLAYS', summary.plays],
-    ['COMMANDS', summary.commands],
-    ['SERVERS', summary.servers],
-  ];
-  let x = 200;
-  for (const [label, value] of stats) {
-    drawStatChip(context, x, 176, label, value);
-    x += 156;
-  }
+function buildPanel(title, rows, emptyText, formatter) {
+  const visible = Array.isArray(rows) ? rows.slice(0, 3) : [];
+  const items = visible.length > 0 ? visible.map((row) => ({ row, formatter })) : [{ empty: emptyText }];
+  return { title, items };
 }
 
-function drawStatChip(context, x, y, label, value) {
-  roundRect(context, x, y, 136, 40, 12, '#3f1f2b');
-  context.fillStyle = '#f5bdca';
-  context.font = '700 11px sans-serif';
-  context.fillText(label, x + 12, y + 14);
-  context.fillStyle = '#fff7f9';
-  context.font = '700 16px sans-serif';
-  context.fillText(formatNumber(value), x + 12, y + 31);
+function buildTrackPanel(rows) {
+  const visible = Array.isArray(rows) ? rows.slice(0, 3) : [];
+  const maxPlays = Math.max(1, ...visible.map((row) => Number(row.plays) || 0));
+  const items = visible.length > 0
+    ? visible.map((row) => ({ row, formatter: formatTrackRow, ratio: (Number(row.plays) || 0) / maxPlays }))
+    : [{ empty: 'Putar musik untuk mengisi daftar track' }];
+  return { title: 'TOP TRACKS', items };
 }
 
-async function drawAvatar(context, avatarUrl, displayName) {
-  const centerX = 110;
-  const centerY = 128;
-  const radius = 72;
-  const image = await getAvatar(avatarUrl);
+function panelHeight(panel) {
+  return 44 + panel.items.length * ROW_HEIGHT + 8;
+}
 
-  context.save();
-  context.beginPath();
-  context.arc(centerX, centerY, radius, 0, Math.PI * 2);
-  context.clip();
-  if (image) {
-    context.drawImage(image, centerX - radius, centerY - radius, radius * 2, radius * 2);
+function paintBackground(ctx, height) {
+  const gradient = ctx.createLinearGradient(0, 0, WIDTH, height);
+  gradient.addColorStop(0, '#0b1020');
+  gradient.addColorStop(0.55, '#141a2e');
+  gradient.addColorStop(1, '#1a2138');
+
+  roundedRect(ctx, 0.5, 0.5, WIDTH - 1, height - 1, RADIUS);
+  ctx.fillStyle = gradient;
+  ctx.fill();
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.07)';
+  ctx.stroke();
+
+  const glow = ctx.createRadialGradient(WIDTH - 90, 30, 10, WIDTH - 90, 30, 420);
+  glow.addColorStop(0, 'rgba(124, 101, 242, 0.22)');
+  glow.addColorStop(1, 'rgba(124, 101, 242, 0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, WIDTH, height);
+}
+
+function paintHeader(ctx, displayName, summary, avatar) {
+  const centerX = PAD + AVATAR_SIZE / 2;
+  const centerY = PAD + AVATAR_SIZE / 2;
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, AVATAR_SIZE / 2, 0, Math.PI * 2);
+  ctx.clip();
+  if (avatar) {
+    ctx.drawImage(avatar, PAD, PAD, AVATAR_SIZE, AVATAR_SIZE);
   } else {
-    context.fillStyle = '#382631';
-    context.fillRect(centerX - radius, centerY - radius, radius * 2, radius * 2);
-    context.fillStyle = '#f5bdca';
-    context.font = '700 52px sans-serif';
-    context.textAlign = 'center';
-    context.textBaseline = 'middle';
-    context.fillText(initials(displayName), centerX, centerY + 2);
-    context.textAlign = 'start';
-    context.textBaseline = 'alphabetic';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.07)';
+    ctx.fillRect(PAD, PAD, AVATAR_SIZE, AVATAR_SIZE);
+    ctx.fillStyle = '#c3c9e4';
+    ctx.font = '700 32px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(initials(displayName), centerX, centerY + 1);
+    ctx.textAlign = 'start';
+    ctx.textBaseline = 'alphabetic';
   }
-  context.restore();
+  ctx.restore();
 
-  context.strokeStyle = '#f3a8bb';
-  context.lineWidth = 5;
-  context.beginPath();
-  context.arc(centerX, centerY, radius + 2, 0, Math.PI * 2);
-  context.stroke();
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, AVATAR_SIZE / 2 - 0.5, 0, Math.PI * 2);
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(167, 139, 250, 0.65)';
+  ctx.stroke();
+
+  const textX = PAD + AVATAR_SIZE + 22;
+
+  ctx.font = EYEBROW_FONT;
+  ctx.fillStyle = '#8b93b8';
+  ctx.fillText('VIBES PROFILE', textX, PAD + 16);
+
+  ctx.font = NAME_FONT;
+  ctx.fillStyle = '#f5f7ff';
+  ctx.fillText(ellipsize(ctx, displayName || 'Listener', WIDTH - PAD - textX), textX, PAD + 56);
+
+  ctx.font = SUBTITLE_FONT;
+  ctx.fillStyle = '#98a1c4';
+  ctx.fillText('Ringkasan aktivitas musik kamu di Vibes', textX, PAD + 84);
+
+  const chips = [
+    ['PLAYS', summary?.plays],
+    ['COMMANDS', summary?.commands],
+    ['SERVERS', summary?.servers],
+  ];
+  let chipX = textX;
+  for (const [label, value] of chips) {
+    chipX += paintStatChip(ctx, chipX, PAD + 100, label, value) + 8;
+  }
 }
 
-function drawPanel(context, x, y, width, height, title, rows, formatter) {
-  roundRect(context, x, y, width, height, 16, 'rgba(26, 16, 23, 0.72)');
-  context.fillStyle = '#f4b4c3';
-  context.font = '700 16px sans-serif';
-  context.fillText(title, x + 24, y + 32);
+function paintStatChip(ctx, x, y, label, value) {
+  ctx.font = CHIP_VALUE_FONT;
+  const valueWidth = ctx.measureText(formatNumber(value)).width;
+  ctx.font = CHIP_LABEL_FONT;
+  const labelWidth = ctx.measureText(label).width;
+  const width = Math.max(valueWidth, labelWidth) + 28;
 
-  const safeRows = rows?.length ? rows.slice(0, 3) : [{ empty: true }];
-  safeRows.forEach((row, index) => {
-    const rowY = y + 62 + index * 44;
-    drawRank(context, x + 22, rowY - 13, index + 1);
-    formatter(context, row, x + 62, rowY);
+  roundedRect(ctx, x, y, width, CHIP_HEIGHT + 12, 12);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.055)';
+  ctx.fill();
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.09)';
+  ctx.stroke();
+
+  ctx.font = CHIP_LABEL_FONT;
+  ctx.fillStyle = '#8b93b8';
+  ctx.fillText(label, x + 14, y + 17);
+
+  ctx.font = CHIP_VALUE_FONT;
+  ctx.fillStyle = '#f5f7ff';
+  ctx.fillText(formatNumber(value), x + 14, y + 35);
+
+  return width;
+}
+
+function paintPanel(ctx, panel) {
+  roundedRect(ctx, panel.x, panel.y, panel.width, panelHeight(panel), PANEL_RADIUS);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.04)';
+  ctx.fill();
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+  ctx.stroke();
+
+  ctx.font = PANEL_TITLE_FONT;
+  ctx.fillStyle = '#8b93b8';
+  ctx.fillText(panel.title, panel.x + 18, panel.y + 28);
+
+  panel.items.forEach((item, index) => {
+    const rowY = panel.y + 44 + index * ROW_HEIGHT;
+
+    if (item.empty) {
+      ctx.font = ROW_META_FONT;
+      ctx.fillStyle = '#7c85a8';
+      ctx.fillText(item.empty, panel.x + 18, rowY + 24);
+      return;
+    }
+
+    paintRank(ctx, panel.x + 18, rowY + 8, index + 1);
+    item.formatter(ctx, item.row, panel.x + 50, rowY, panel.width - 68, item);
   });
 }
 
-function drawRank(context, x, y, rank) {
-  roundRect(context, x, y, 28, 28, 7, rank === 1 ? '#d85a70' : '#8c3c4d');
-  context.fillStyle = '#fff7f9';
-  context.font = '700 14px sans-serif';
-  context.textAlign = 'center';
-  context.textBaseline = 'middle';
-  context.fillText(`${rank}`, x + 14, y + 15);
-  context.textAlign = 'start';
-  context.textBaseline = 'alphabetic';
+function paintRank(ctx, x, y, rank) {
+  roundedRect(ctx, x, y, 24, 24, 7);
+  ctx.fillStyle = rank === 1 ? 'rgba(124, 101, 242, 0.35)' : 'rgba(255, 255, 255, 0.06)';
+  ctx.fill();
+
+  ctx.font = '700 12px sans-serif';
+  ctx.fillStyle = rank === 1 ? '#d8ccff' : '#9aa3c7';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(String(rank), x + 12, y + 13);
+  ctx.textAlign = 'start';
+  ctx.textBaseline = 'alphabetic';
 }
 
-function formatServerRow(context, row, x, y) {
-  if (row.empty) return drawEmptyRow(context, x, y, 'Belum ada aktivitas server');
-  context.fillStyle = '#fff7f9';
-  context.font = '600 18px sans-serif';
-  context.fillText(truncate(context, row.name, 300), x, y);
-  context.fillStyle = '#dca5b3';
-  context.font = '500 14px sans-serif';
-  context.fillText(`${formatNumber(row.plays)} plays • ${formatNumber(row.commands)} commands`, x, y + 20);
+function formatServerRow(ctx, row, x, y, maxWidth) {
+  ctx.font = ROW_TITLE_FONT;
+  ctx.fillStyle = '#f5f7ff';
+  ctx.fillText(ellipsize(ctx, row.name, maxWidth), x, y + 16);
+
+  ctx.font = ROW_META_FONT;
+  ctx.fillStyle = '#8b93b8';
+  ctx.fillText(`${formatNumber(row.plays)} plays · ${formatNumber(row.commands)} commands`, x, y + 36);
 }
 
-function formatFriendRow(context, row, x, y) {
-  if (row.empty) return drawEmptyRow(context, x, y, 'Belum ada listener bersama');
-  context.fillStyle = '#fff7f9';
-  context.font = '600 18px sans-serif';
-  context.fillText(truncate(context, row.name, 300), x, y);
-  context.fillStyle = '#dca5b3';
-  context.font = '500 14px sans-serif';
-  context.fillText(`${formatNumber(row.plays)} plays bersama`, x, y + 20);
+function formatFriendRow(ctx, row, x, y, maxWidth) {
+  ctx.font = ROW_TITLE_FONT;
+  ctx.fillStyle = '#f5f7ff';
+  ctx.fillText(ellipsize(ctx, row.name, maxWidth), x, y + 16);
+
+  ctx.font = ROW_META_FONT;
+  ctx.fillStyle = '#8b93b8';
+  ctx.fillText(`${formatNumber(row.plays)} plays bersama`, x, y + 36);
 }
 
-function formatTrackRow(context, row, x, y) {
-  if (row.empty) return drawEmptyRow(context, x, y, 'Putar musik untuk mengisi daftar track');
-  context.fillStyle = '#fff7f9';
-  context.font = '600 18px sans-serif';
-  context.fillText(truncate(context, row.title, 700), x, y);
-  context.fillStyle = '#dca5b3';
-  context.font = '500 14px sans-serif';
-  context.fillText(`${formatDuration(row.durationSeconds)} • ${formatNumber(row.plays)} plays`, x, y + 20);
+function formatTrackRow(ctx, row, x, y, maxWidth, item) {
+  const barWidth = Math.max(maxWidth - 8, 120);
+  const nameWidth = barWidth;
+
+  ctx.font = ROW_TITLE_FONT;
+  ctx.fillStyle = '#f5f7ff';
+  ctx.fillText(ellipsize(ctx, row.title, nameWidth), x, y + 16);
+
+  ctx.font = ROW_META_FONT;
+  ctx.fillStyle = '#8b93b8';
+  ctx.fillText(`${formatDuration(row.durationSeconds)} · ${formatNumber(row.plays)} plays`, x, y + 34);
+
+  const barY = y + 40;
+  roundedRect(ctx, x, barY, barWidth, 4, 2);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+  ctx.fill();
+
+  const ratio = Math.min(Math.max(item?.ratio ?? 0, 0.02), 1);
+  const fill = ctx.createLinearGradient(x, barY, x + barWidth, barY);
+  fill.addColorStop(0, ACCENT_START);
+  fill.addColorStop(1, ACCENT_END);
+  roundedRect(ctx, x, barY, barWidth * ratio, 4, 2);
+  ctx.fillStyle = fill;
+  ctx.fill();
 }
 
-function drawEmptyRow(context, x, y, text) {
-  context.fillStyle = '#c7909e';
-  context.font = '500 16px sans-serif';
-  context.fillText(text, x, y);
+function roundedRect(ctx, x, y, width, height, radius) {
+  const r = Math.min(radius, width / 2, height / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + width, y, x + width, y + height, r);
+  ctx.arcTo(x + width, y + height, x, y + height, r);
+  ctx.arcTo(x, y + height, x, y, r);
+  ctx.arcTo(x, y, x + width, y, r);
+  ctx.closePath();
 }
 
-async function getAvatar(avatarUrl) {
-  if (!avatarUrl) return null;
-  if (avatarCache.has(avatarUrl)) return avatarCache.get(avatarUrl);
+function ellipsize(ctx, value, maxWidth) {
+  const text = String(value || 'Unknown').replace(/\s+/gu, ' ');
+  if (ctx.measureText(text).width <= maxWidth) return text;
 
-  try {
-    const image = await loadImage(avatarUrl);
-    if (avatarCache.size >= 64) avatarCache.delete(avatarCache.keys().next().value);
-    avatarCache.set(avatarUrl, image);
-    return image;
-  } catch {
-    return null;
+  let trimmed = text;
+  while (trimmed.length > 1 && ctx.measureText(`${trimmed}…`).width > maxWidth) {
+    trimmed = trimmed.slice(0, -1);
   }
-}
-
-function roundRect(context, x, y, width, height, radius, fillStyle) {
-  context.fillStyle = fillStyle;
-  context.beginPath();
-  context.moveTo(x + radius, y);
-  context.arcTo(x + width, y, x + width, y + height, radius);
-  context.arcTo(x + width, y + height, x, y + height, radius);
-  context.arcTo(x, y + height, x, y, radius);
-  context.arcTo(x, y, x + width, y, radius);
-  context.closePath();
-  context.fill();
-}
-
-function truncate(context, value, maxWidth) {
-  const text = String(value || 'Unknown');
-  if (context.measureText(text).width <= maxWidth) return text;
-  let result = text;
-  while (result.length > 1 && context.measureText(`${result}…`).width > maxWidth) {
-    result = result.slice(0, -1);
-  }
-  return `${result}…`;
+  return `${trimmed}…`;
 }
 
 function initials(value) {
-  return String(value || 'L')
+  const letters = String(value || 'L')
     .trim()
-    .split(/\s+/)
+    .split(/\s+/u)
     .slice(0, 2)
     .map((part) => part[0])
     .join('')
-    .toUpperCase() || 'L';
+    .toUpperCase();
+
+  return letters || 'L';
 }
 
 function formatNumber(value) {
@@ -225,8 +321,7 @@ function formatDuration(seconds) {
   const totalMinutes = Math.max(0, Math.floor((Number(seconds) || 0) / 60));
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
-  if (hours) return `${hours}h ${minutes}m`;
-  return `${minutes}m`;
+  return hours > 0 ? `${hours}j ${minutes}m` : `${minutes}m`;
 }
 
 function emptyProfile() {
@@ -236,4 +331,43 @@ function emptyProfile() {
     topFriends: [],
     topTracks: [],
   };
+}
+
+async function loadAvatar(url) {
+  if (!url) return null;
+  if (AVATAR_CACHE.has(url)) return AVATAR_CACHE.get(url);
+
+  const image = (await fetchAvatar(url)) ?? (await decodeAvatar(url));
+  rememberAvatar(url, image);
+  return image;
+}
+
+async function fetchAvatar(url) {
+  try {
+    const response = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; vibes-discord/1.0)' },
+      signal: AbortSignal.timeout(AVATAR_TIMEOUT_MS),
+    });
+    if (!response.ok) return null;
+
+    const image = await loadImage(Buffer.from(await response.arrayBuffer()));
+    return image.width >= 32 ? image : null;
+  } catch {
+    return null;
+  }
+}
+
+async function decodeAvatar(url) {
+  try {
+    return await loadImage(url);
+  } catch {
+    return null;
+  }
+}
+
+function rememberAvatar(url, image) {
+  if (AVATAR_CACHE.size >= AVATAR_CACHE_LIMIT) {
+    AVATAR_CACHE.delete(AVATAR_CACHE.keys().next().value);
+  }
+  AVATAR_CACHE.set(url, image);
 }
