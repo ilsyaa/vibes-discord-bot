@@ -101,7 +101,9 @@ export async function refreshPlayerPanel(client, queue) {
 function startPanelHeartbeat(client) {
   if (panelHeartbeat) return;
   panelHeartbeat = setInterval(() => {
-    void refreshPlayingPanels(client);
+    refreshPlayingPanels(client).catch((error) => {
+      console.warn('Panel heartbeat gagal:', error?.message ?? error);
+    });
   }, PANEL_HEARTBEAT_MS);
   panelHeartbeat.unref?.();
 }
@@ -114,9 +116,11 @@ function stopPanelHeartbeat() {
 
 async function refreshPlayingPanels(client) {
   const distube = distubeInstance;
-  if (!distube?.queues) return;
+  // DisTube v5 keeps queues in QueueManager.collection, not on the manager itself.
+  const queues = distube?.queues?.collection?.values?.() ?? distube?.queues?.values?.();
+  if (!queues) return;
 
-  for (const queue of distube.queues.values()) {
+  for (const queue of queues) {
     if (!shouldAutoRefreshPanel(queue)) continue;
 
     const second = Math.floor(Number(queue.currentTime) || 0);
