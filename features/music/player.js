@@ -5,11 +5,12 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { DisTube } from 'distube';
 import { YouTubePlugin } from '@distube/youtube';
 import { createPoTokenProvider, Client, Ytdl } from '@distube/ytdl-core';
-import { EmbedBuilder } from 'discord.js';
+import { EmbedBuilder, AttachmentBuilder } from 'discord.js';
 import { config } from '../../core/config.js';
 import { ProxyPool } from '../../core/proxy-pool.js';
 import { createStreamRelay } from '../../core/stream-relay.js';
-import { createNowPlayingEmbed, createPlayerButtons, formatSongLink, getSongTitle } from './ui.js';
+import { createNowPlayingEmbed, createPlayerButtons, getSongTitle } from './ui.js';
+import { CARD_FILENAME, renderNowPlayingCard } from './now-playing-card.js';
 
 let distubeInstance = null;
 let youtubePluginInstance = null;
@@ -60,18 +61,34 @@ export async function searchYoutube(query, limit = 5) {
   return youtubePluginInstance.search(query, { limit });
 }
 
+/**
+ * Single source of truth for the player panel: PNG card plus control buttons,
+ * falling back to the embed when the canvas render fails.
+ */
+export async function buildPlayerPayload(client, queue, song) {
+  const autoplayEnabled = client?.store?.getGuildSettings?.(queue.id)?.autoplay === true;
+  const components = createPlayerButtons(queue, { autoplayEnabled });
+
+  try {
+    const buffer = await renderNowPlayingCard(queue, song);
+    return {
+      files: [new AttachmentBuilder(buffer, { name: CARD_FILENAME })],
+      embeds: [],
+      components,
+    };
+  } catch (error) {
+    console.warn('Now-playing card gagal dirender, memakai embed:', error.message);
+    return { embeds: [createNowPlayingEmbed(queue, song)], components };
+  }
+}
+
 export async function refreshPlayerPanel(client, queue) {
   const message = queue?._lastPlayerMessage;
   const song = queue?.songs?.[0];
   if (!message || !song) return false;
   await ensureSongMetadata(song);
   try {
-    await message.edit({
-      embeds: [createNowPlayingEmbed(queue, song)],
-      components: createPlayerButtons(queue, {
-        autoplayEnabled: client?.store?.getGuildSettings?.(queue.id)?.autoplay === true,
-      }),
-    });
+    await message.edit(await buildPlayerPayload(client, queue, song));
     return true;
   } catch {
     return false;
@@ -442,19 +459,16 @@ export async function initMusicPlayer(client) {
     if (!queue.textChannel) return;
 
     try {
-      const embed = createNowPlayingEmbed(queue, song);
-      const components = createPlayerButtons(queue, {
-        autoplayEnabled: client.store?.getGuildSettings?.(queue.id)?.autoplay === true,
-      });
+      const payload = await buildPlayerPayload(client, queue, song);
       if (queue._lastPlayerMessage) {
         try {
-          await queue._lastPlayerMessage.edit({ embeds: [embed], components });
+          await queue._lastPlayerMessage.edit(payload);
         } catch {
           queue._lastPlayerMessage = null;
         }
       }
       if (!queue._lastPlayerMessage) {
-        queue._lastPlayerMessage = await queue.textChannel.send({ embeds: [embed], components });
+        queue._lastPlayerMessage = await queue.textChannel.send(payload);
       }
     } catch (err) {
       console.error('Error saat mengirim pesan playSong:', err.message);
@@ -466,22 +480,6 @@ export async function initMusicPlayer(client) {
       console.warn('⚠️ Gagal memulihkan metadata lagu antrean:', error.message);
     });
     recordProfileTrack(client, queue, song);
-    if (!queue.textChannel) return;
-
-    const embed = new EmbedBuilder()
-      .setColor(0x57F287)
-      .setTitle('➕ Ditambahkan ke Antrean Playlist')
-      .setDescription(`**${formatSongLink(song)}**`)
-      .setThumbnail(song.thumbnail || null)
-      .addFields(
-        { name: '⏱️ Durasi', value: song.formattedDuration || 'N/A', inline: true },
-        { name: '👤 Channel', value: song.uploader?.name || song.uploader || 'Unknown', inline: true },
-        { name: '📌 Posisi Antrean', value: `#${queue.songs.length}`, inline: true },
-      )
-      .setFooter({ text: `Diminta oleh ${song.user?.tag || song.user?.username || 'User'}` })
-      .setTimestamp();
-
-    queue.textChannel.send({ embeds: [embed] }).catch(() => {});
   });
 
   distube.on('addList', (queue, playlist) => {

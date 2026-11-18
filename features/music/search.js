@@ -4,7 +4,7 @@ import {
   StringSelectMenuBuilder,
 } from 'discord.js';
 import { getDisTube, searchYoutube } from './player.js';
-import { getSongTitle } from './ui.js';
+import { getSongTitle, reactPending, settleReaction } from './ui.js';
 import { voiceControlError } from './access.js';
 
 export const searchCommand = {
@@ -39,14 +39,19 @@ export const searchCommand = {
     if (query.length < 2) return message.reply('❌ Masukkan minimal dua karakter pencarian.');
     const accessError = searchAccessError(message, client);
     if (accessError) return message.reply(accessError);
-    const loading = await message.reply(`🔎 Mencari **${query}**...`);
+    const pending = await reactPending(message);
     try {
       const results = await searchYoutube(query, 5);
-      if (!results.length) return loading.edit({ content: `❌ Tidak ada hasil untuk **${query}**.`, components: [] });
-      return loading.edit(searchPayload(query, results, message.author.id));
+      if (!results.length) {
+        await settleReaction(message, pending, '❌');
+        return message.reply(`❌ Tidak ada hasil untuk **${query}**.`).catch(() => {});
+      }
+      await settleReaction(message, pending, null);
+      return message.reply(searchPayload(query, results, message.author.id)).catch(() => {});
     } catch (error) {
       console.error('YouTube search failed:', error);
-      return loading.edit({ content: '⚠️ Pencarian YouTube gagal. Coba lagi beberapa saat.', components: [] });
+      await settleReaction(message, pending, '❌');
+      return message.reply('⚠️ Pencarian YouTube gagal. Coba lagi beberapa saat.').catch(() => {});
     }
   },
 };

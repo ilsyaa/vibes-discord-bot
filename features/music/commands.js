@@ -1,6 +1,21 @@
 import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
-import { getDisTube, getMusicHealth, skipWithAutoplay, ensureSongMetadata, refreshPlayerPanel, retirePlayerPanel } from './player.js';
-import { formatRepeatMode, createNowPlayingEmbed, createPlayerButtons, createQueueEmbed, createQueuePagination, getSongTitle } from './ui.js';
+import {
+  getDisTube,
+  getMusicHealth,
+  skipWithAutoplay,
+  ensureSongMetadata,
+  refreshPlayerPanel,
+  retirePlayerPanel,
+  buildPlayerPayload,
+} from './player.js';
+import {
+  formatRepeatMode,
+  createQueueEmbed,
+  createQueuePagination,
+  getSongTitle,
+  reactPending,
+  settleReaction,
+} from './ui.js';
 import { canManageMusicSettings, voiceControlError } from './access.js';
 
 export const playCommand = {
@@ -42,7 +57,7 @@ export const playCommand = {
       });
     }
 
-    await interaction.deferReply();
+    await interaction.deferReply({ ephemeral: true });
 
     try {
       const existingQueue = distube.getQueue(interaction.guildId);
@@ -52,9 +67,7 @@ export const playCommand = {
       });
       if (!existingQueue) applyGuildSettings(distube, interaction.guildId, client);
 
-      return interaction.editReply({
-        content: `🔍 Memproses permintaan: **${query}**...`,
-      });
+      return interaction.deleteReply().catch(() => {});
     } catch (err) {
       console.error('Error /play:', err);
       return interaction.editReply({
@@ -84,8 +97,7 @@ export const playCommand = {
       return message.reply(`❌ Kamu harus berada di voice channel yang sama dengan bot (<#${botVoice.id}>)!`);
     }
 
-    const loadingMsg = await message.reply(`🔍 Memproses permintaan: **${query}**...`);
-
+    const pending = await reactPending(message);
     try {
       const existingQueue = distube.getQueue(message.guildId);
       await distube.play(voiceChannel, query, {
@@ -93,25 +105,15 @@ export const playCommand = {
         member: message.member,
       });
       if (!existingQueue) applyGuildSettings(distube, message.guildId, client);
-      loadingMsg.delete().catch(() => {});
+      await settleReaction(message, pending, '✅');
     } catch (err) {
       console.error('Error prefix play:', err);
-      await editLoadingMessage(
-        loadingMsg,
-        message,
-        `⚠️ Gagal memutar lagu: \`${err.message}\``,
-      );
+      await settleReaction(message, pending, '❌');
+      await message.reply(`⚠️ Gagal memutar lagu: \`${err.message}\``).catch(() => {});
     }
   },
 };
 
-async function editLoadingMessage(loadingMsg, sourceMessage, content) {
-  try {
-    await loadingMsg.edit(content);
-  } catch {
-    await sourceMessage.reply(content).catch(() => {});
-  }
-}
 function applyGuildSettings(distube, guildId, client) {
   try {
     const settings = client.store?.ensureGuildSettings?.(guildId);
@@ -801,12 +803,7 @@ export const nowPlayingCommand = {
     const song = queue.songs[0];
     await interaction.deferReply();
     await ensureSongMetadata(song);
-    return interaction.editReply({
-      embeds: [createNowPlayingEmbed(queue, song)],
-      components: createPlayerButtons(queue, {
-        autoplayEnabled: client.store?.getGuildSettings?.(queue.id)?.autoplay === true,
-      }),
-    });
+    return interaction.editReply(await buildPlayerPayload(client, queue, song));
   },
 
   async executePrefix(message, _args, client) {
@@ -819,12 +816,7 @@ export const nowPlayingCommand = {
 
     const song = queue.songs[0];
     await ensureSongMetadata(song);
-    return message.reply({
-      embeds: [createNowPlayingEmbed(queue, song)],
-      components: createPlayerButtons(queue, {
-        autoplayEnabled: client.store?.getGuildSettings?.(queue.id)?.autoplay === true,
-      }),
-    });
+    return message.reply(await buildPlayerPayload(client, queue, song));
   },
 };
 export const diagnoseCommand = {

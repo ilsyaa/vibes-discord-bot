@@ -5,6 +5,23 @@ import {
   ButtonStyle,
 } from 'discord.js';
 
+/**
+ * Reaction-based feedback keeps the channel free of "loading" messages: the
+ * bot marks the user's message, then swaps the marker for a result emoji.
+ */
+export async function reactPending(message) {
+  return message.react('⏳').catch(() => null);
+}
+
+export async function settleReaction(message, pending, emoji) {
+  try {
+    await pending?.users.remove(message.client.user.id);
+  } catch {
+    /* reaction cleanup is best effort */
+  }
+  if (emoji) await message.react(emoji).catch(() => {});
+}
+
 export function formatRepeatMode(mode) {
   if (mode === 1) return '🔂 Lagu';
   if (mode === 2) return '🔁 Playlist';
