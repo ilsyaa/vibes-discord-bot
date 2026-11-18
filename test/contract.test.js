@@ -275,13 +275,21 @@ test('profile card renders a PNG', async () => {
 
 test('profile command renders and replies with its attachment', async () => {
   let payload;
+  let deferred = false;
   await profileCommand.executeSlash({
     user: {
       id: 'user-a',
       username: 'User A',
       displayAvatarURL: () => '',
     },
+    deferReply() {
+      deferred = true;
+    },
     reply(value) {
+      payload = value;
+      return value;
+    },
+    editReply(value) {
       payload = value;
       return value;
     },
@@ -289,6 +297,7 @@ test('profile command renders and replies with its attachment', async () => {
     guilds: { cache: new Map() },
     store: null,
   });
+  assert.equal(deferred, true);
   assert.equal(payload.files[0].name, 'vibes-profile-user-a.png');
 });
 

@@ -68,7 +68,9 @@ export const profileCommand = {
   aliases: ['me'],
 
   async executeSlash(interaction, client) {
-    return interaction.reply({ files: [await createProfileAttachment(interaction.user, client)] });
+    // Rendering fetches the avatar, which can take longer than the 3s ack window.
+    await interaction.deferReply();
+    return interaction.editReply({ files: [await createProfileAttachment(interaction.user, client)] });
   },
 
   async executePrefix(message, args, client) {
