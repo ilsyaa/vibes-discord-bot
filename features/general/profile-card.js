@@ -48,7 +48,7 @@ export async function renderProfileCard({ displayName, avatarUrl, profile }) {
   paintHeader(ctx, displayName, safeProfile.summary, avatar);
   paintPanel(ctx, layout.servers);
   paintPanel(ctx, layout.friends);
-  paintTracks(ctx, layout.tracks);
+  paintPanel(ctx, layout.tracks);
 
   return canvas.encode('png');
 }
