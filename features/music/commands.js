@@ -1,6 +1,7 @@
 import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
-import { getDisTube, skipWithAutoplay, ensureSongMetadata } from './player.js';
-import { formatRepeatMode, createNowPlayingEmbed, createPlayerButtons, formatSongLink, getSongTitle } from './ui.js';
+import { getDisTube, getMusicHealth, skipWithAutoplay, ensureSongMetadata, refreshPlayerPanel, retirePlayerPanel } from './player.js';
+import { formatRepeatMode, createNowPlayingEmbed, createPlayerButtons, createQueueEmbed, createQueuePagination, getSongTitle } from './ui.js';
+import { canManageMusicSettings, voiceControlError } from './access.js';
 
 export const playCommand = {
   data: new SlashCommandBuilder()
@@ -44,11 +45,12 @@ export const playCommand = {
     await interaction.deferReply();
 
     try {
+      const existingQueue = distube.getQueue(interaction.guildId);
       await distube.play(voiceChannel, query, {
         textChannel: interaction.channel,
         member,
       });
-      applyGuildSettings(distube, interaction.guildId, client);
+      if (!existingQueue) applyGuildSettings(distube, interaction.guildId, client);
 
       return interaction.editReply({
         content: `🔍 Memproses permintaan: **${query}**...`,
@@ -85,11 +87,12 @@ export const playCommand = {
     const loadingMsg = await message.reply(`🔍 Memproses permintaan: **${query}**...`);
 
     try {
+      const existingQueue = distube.getQueue(message.guildId);
       await distube.play(voiceChannel, query, {
         textChannel: message.channel,
         member: message.member,
       });
-      applyGuildSettings(distube, message.guildId, client);
+      if (!existingQueue) applyGuildSettings(distube, message.guildId, client);
       loadingMsg.delete().catch(() => {});
     } catch (err) {
       console.error('Error prefix play:', err);
@@ -124,6 +127,25 @@ function isMusicChannelAllowed(guildId, channelId, client) {
   return !settings?.musicChannelId || settings.musicChannelId === channelId;
 }
 
+export function parseSeekTime(value) {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const parts = value.trim().split(':');
+  if (parts.length > 3 || parts.some((part) => !/^\d+$/u.test(part))) return null;
+  const numbers = parts.map(Number);
+  if (numbers.some((part) => !Number.isSafeInteger(part))) return null;
+  if (parts.length > 1 && numbers.slice(1).some((part) => part > 59)) return null;
+  return numbers.reduce((total, part) => total * 60 + part, 0);
+}
+
+function formatSeekTime(seconds) {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainder = seconds % 60;
+  return hours
+    ? `${hours}:${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`
+    : `${minutes}:${String(remainder).padStart(2, '0')}`;
+}
+
 export const skipCommand = {
   data: new SlashCommandBuilder()
     .setName('skip')
@@ -140,6 +162,9 @@ export const skipCommand = {
         ephemeral: true,
       });
     }
+
+    const accessError = voiceControlError(interaction.member, queue);
+    if (accessError) return interaction.reply({ content: accessError, ephemeral: true });
 
     await interaction.deferReply();
     try {
@@ -176,6 +201,9 @@ export const skipCommand = {
       return message.reply('❌ Tidak ada musik yang sedang diputar!');
     }
 
+    const accessError = voiceControlError(message.member, queue);
+    if (accessError) return message.reply(accessError);
+
     try {
       const song = await queue.skip();
       await ensureSongMetadata(song);
@@ -209,6 +237,9 @@ export const prevCommand = {
       });
     }
 
+    const accessError = voiceControlError(interaction.member, queue);
+    if (accessError) return interaction.reply({ content: accessError, ephemeral: true });
+
     try {
       const song = await queue.previous();
       await ensureSongMetadata(song);
@@ -237,6 +268,9 @@ export const prevCommand = {
       return message.reply('❌ Tidak ada musik yang sedang diputar!');
     }
 
+    const accessError = voiceControlError(message.member, queue);
+    if (accessError) return message.reply(accessError);
+
     try {
       const song = await queue.previous();
       await ensureSongMetadata(song);
@@ -249,6 +283,127 @@ export const prevCommand = {
     }
   },
 };
+
+export const jumpCommand = {
+  data: new SlashCommandBuilder()
+    .setName('jump')
+    .setDescription('Lompat ke nomor lagu berikutnya dalam antrean')
+    .addIntegerOption((option) =>
+      option
+        .setName('position')
+        .setDescription('Nomor lagu dari tampilan /queue')
+        .setRequired(true)
+        .setMinValue(1),
+    ),
+  aliases: ['goto'],
+
+  async executeSlash(interaction) {
+    const queue = getDisTube().getQueue(interaction.guildId);
+    if (!queue || queue.songs.length <= 1) {
+      return interaction.reply({ content: '❌ Tidak ada lagu berikutnya dalam antrean.', ephemeral: true });
+    }
+    const accessError = voiceControlError(interaction.member, queue);
+    if (accessError) return interaction.reply({ content: accessError, ephemeral: true });
+    const position = interaction.options.getInteger('position');
+    if (position >= queue.songs.length) {
+      return interaction.reply({ content: `❌ Pilih posisi 1 sampai ${queue.songs.length - 1}.`, ephemeral: true });
+    }
+    await interaction.deferReply();
+    try {
+      const song = await queue.jump(position);
+      await ensureSongMetadata(song);
+      return interaction.editReply(`⏩ Melompat ke **${getSongTitle(song)}**.`);
+    } catch (error) {
+      return interaction.editReply(`⚠️ Gagal melompat: \`${error.message}\``);
+    }
+  },
+
+  async executePrefix(message, args) {
+    const queue = getDisTube().getQueue(message.guildId);
+    if (!queue || queue.songs.length <= 1) return message.reply('❌ Tidak ada lagu berikutnya dalam antrean.');
+    const accessError = voiceControlError(message.member, queue);
+    if (accessError) return message.reply(accessError);
+    const position = Number(args[0]);
+    if (!Number.isSafeInteger(position) || position < 1 || position >= queue.songs.length) {
+      return message.reply(`❌ Gunakan posisi 1 sampai ${queue.songs.length - 1}. Contoh: \`!jump 2\``);
+    }
+    try {
+      const song = await queue.jump(position);
+      await ensureSongMetadata(song);
+      return message.reply(`⏩ Melompat ke **${getSongTitle(song)}**.`);
+    } catch (error) {
+      return message.reply(`⚠️ Gagal melompat: \`${error.message}\``);
+    }
+  },
+};
+
+export const seekCommand = {
+  data: new SlashCommandBuilder()
+    .setName('seek')
+    .setDescription('Pindah ke waktu tertentu pada lagu aktif')
+    .addStringOption((option) =>
+      option
+        .setName('time')
+        .setDescription('Detik, mm:ss, atau hh:mm:ss')
+        .setRequired(true),
+    ),
+  aliases: [],
+
+  async executeSlash(interaction) {
+    return seekFromInteraction(interaction, interaction.options.getString('time'));
+  },
+
+  async executePrefix(message, args) {
+    return seekFromMessage(message, args[0]);
+  },
+};
+
+async function seekFromInteraction(interaction, value) {
+  const queue = getDisTube().getQueue(interaction.guildId);
+  if (!queue?.songs?.length) {
+    return interaction.reply({ content: '❌ Tidak ada musik yang sedang diputar.', ephemeral: true });
+  }
+  const accessError = voiceControlError(interaction.member, queue);
+  if (accessError) return interaction.reply({ content: accessError, ephemeral: true });
+  const error = seekValidationError(queue.songs[0], value);
+  if (error) return interaction.reply({ content: error, ephemeral: true });
+  const seconds = parseSeekTime(value);
+  await interaction.deferReply();
+  try {
+    await queue.seek(seconds);
+    await refreshPlayerPanel(interaction.client, queue);
+    return interaction.editReply(`⏱️ Posisi pemutaran dipindahkan ke **${formatSeekTime(seconds)}**.`);
+  } catch (seekError) {
+    return interaction.editReply(`⚠️ Gagal memindahkan posisi: \`${seekError.message}\``);
+  }
+}
+
+async function seekFromMessage(message, value) {
+  const queue = getDisTube().getQueue(message.guildId);
+  if (!queue?.songs?.length) return message.reply('❌ Tidak ada musik yang sedang diputar.');
+  const accessError = voiceControlError(message.member, queue);
+  if (accessError) return message.reply(accessError);
+  const error = seekValidationError(queue.songs[0], value);
+  if (error) return message.reply(error);
+  const seconds = parseSeekTime(value);
+  try {
+    await queue.seek(seconds);
+    await refreshPlayerPanel(message.client, queue);
+    return message.reply(`⏱️ Posisi pemutaran dipindahkan ke **${formatSeekTime(seconds)}**.`);
+  } catch (seekError) {
+    return message.reply(`⚠️ Gagal memindahkan posisi: \`${seekError.message}\``);
+  }
+}
+
+function seekValidationError(song, value) {
+  const seconds = parseSeekTime(value);
+  if (seconds === null) return '❌ Gunakan detik, `mm:ss`, atau `hh:mm:ss`. Contoh: `!seek 1:30`.';
+  if (song?.isLive) return '❌ Seek tidak tersedia untuk live stream.';
+  if (Number.isFinite(song?.duration) && song.duration > 0 && seconds >= song.duration) {
+    return `❌ Waktu harus lebih pendek dari durasi lagu (${song.formattedDuration || `${song.duration} detik`}).`;
+  }
+  return null;
+}
 
 export const queueCommand = {
   data: new SlashCommandBuilder()
@@ -267,7 +422,10 @@ export const queueCommand = {
       });
     }
 
-    return interaction.reply({ embeds: [buildQueueEmbed(queue)] });
+    return interaction.reply({
+      embeds: [createQueueEmbed(queue)],
+      components: createQueuePagination(queue),
+    });
   },
 
   async executePrefix(message) {
@@ -278,7 +436,10 @@ export const queueCommand = {
       return message.reply('❌ Antrean playlist saat ini kosong!');
     }
 
-    return message.reply({ embeds: [buildQueueEmbed(queue)] });
+    return message.reply({
+      embeds: [createQueueEmbed(queue)],
+      components: createQueuePagination(queue),
+    });
   },
 };
 
@@ -299,7 +460,11 @@ export const pauseCommand = {
       return interaction.reply({ content: '⚠️ Pemutaran sudah dalam keadaan dijeda!', ephemeral: true });
     }
 
+    const accessError = voiceControlError(interaction.member, queue);
+    if (accessError) return interaction.reply({ content: accessError, ephemeral: true });
+
     queue.pause();
+    await refreshPlayerPanel(interaction.client, queue);
     return interaction.reply('⏸️ Musik berhasil dijeda.');
   },
 
@@ -310,7 +475,11 @@ export const pauseCommand = {
     if (!queue) return message.reply('❌ Tidak ada musik yang sedang diputar!');
     if (queue.paused) return message.reply('⚠️ Pemutaran sudah dalam keadaan dijeda!');
 
+    const accessError = voiceControlError(message.member, queue);
+    if (accessError) return message.reply(accessError);
+
     queue.pause();
+    await refreshPlayerPanel(message.client, queue);
     return message.reply('⏸️ Musik berhasil dijeda.');
   },
 };
@@ -332,7 +501,11 @@ export const resumeCommand = {
       return interaction.reply({ content: '⚠️ Pemutaran sedang berlangsung!', ephemeral: true });
     }
 
+    const accessError = voiceControlError(interaction.member, queue);
+    if (accessError) return interaction.reply({ content: accessError, ephemeral: true });
+
     queue.resume();
+    await refreshPlayerPanel(interaction.client, queue);
     return interaction.reply('▶️ Musik dilanjutkan.');
   },
 
@@ -343,7 +516,11 @@ export const resumeCommand = {
     if (!queue) return message.reply('❌ Tidak ada musik yang sedang diputar!');
     if (!queue.paused) return message.reply('⚠️ Pemutaran sedang berlangsung!');
 
+    const accessError = voiceControlError(message.member, queue);
+    if (accessError) return message.reply(accessError);
+
     queue.resume();
+    await refreshPlayerPanel(message.client, queue);
     return message.reply('▶️ Musik dilanjutkan.');
   },
 };
@@ -362,7 +539,11 @@ export const stopCommand = {
       return interaction.reply({ content: '❌ Tidak ada musik yang sedang diputar!', ephemeral: true });
     }
 
+    const accessError = voiceControlError(interaction.member, queue);
+    if (accessError) return interaction.reply({ content: accessError, ephemeral: true });
+
     await queue.stop();
+    await retirePlayerPanel(queue);
     return interaction.reply('⏹️ Pemutaran dihentikan dan antrean playlist telah dikosongkan.');
   },
 
@@ -372,7 +553,11 @@ export const stopCommand = {
 
     if (!queue) return message.reply('❌ Tidak ada musik yang sedang diputar!');
 
+    const accessError = voiceControlError(message.member, queue);
+    if (accessError) return message.reply(accessError);
+
     await queue.stop();
+    await retirePlayerPanel(queue);
     return message.reply('⏹️ Pemutaran dihentikan dan antrean playlist telah dikosongkan.');
   },
 };
@@ -402,12 +587,16 @@ export const loopCommand = {
       return interaction.reply({ content: '❌ Tidak ada musik yang sedang diputar!', ephemeral: true });
     }
 
+    const accessError = voiceControlError(interaction.member, queue);
+    if (accessError) return interaction.reply({ content: accessError, ephemeral: true });
+
     let mode = interaction.options.getInteger('mode');
     if (mode === null) {
       mode = (queue.repeatMode + 1) % 3;
     }
 
     queue.setRepeatMode(mode);
+    await refreshPlayerPanel(interaction.client, queue);
     return interaction.reply(`🔁 Mode repeat diubah ke: **${formatRepeatMode(mode)}**`);
   },
 
@@ -416,6 +605,9 @@ export const loopCommand = {
     const queue = distube.getQueue(message.guildId);
 
     if (!queue) return message.reply('❌ Tidak ada musik yang sedang diputar!');
+
+    const accessError = voiceControlError(message.member, queue);
+    if (accessError) return message.reply(accessError);
 
     let mode;
     const arg = args[0]?.toLowerCase();
@@ -428,6 +620,7 @@ export const loopCommand = {
     }
 
     queue.setRepeatMode(mode);
+    await refreshPlayerPanel(message.client, queue);
     return message.reply(`🔁 Mode repeat diubah ke: **${formatRepeatMode(mode)}**`);
   },
 };
@@ -449,7 +642,11 @@ export const shuffleCommand = {
       });
     }
 
+    const accessError = voiceControlError(interaction.member, queue);
+    if (accessError) return interaction.reply({ content: accessError, ephemeral: true });
+
     await queue.shuffle();
+    await refreshPlayerPanel(interaction.client, queue);
     return interaction.reply('🔀 Antrean lagu berhasil diacak!');
   },
 
@@ -461,7 +658,11 @@ export const shuffleCommand = {
       return message.reply('❌ Tidak cukup lagu di antrean untuk diacak!');
     }
 
+    const accessError = voiceControlError(message.member, queue);
+    if (accessError) return message.reply(accessError);
+
     await queue.shuffle();
+    await refreshPlayerPanel(message.client, queue);
     return message.reply('🔀 Antrean lagu berhasil diacak!');
   },
 };
@@ -488,8 +689,12 @@ export const volumeCommand = {
       return interaction.reply({ content: '❌ Tidak ada musik yang sedang diputar!', ephemeral: true });
     }
 
+    const accessError = voiceControlError(interaction.member, queue);
+    if (accessError) return interaction.reply({ content: accessError, ephemeral: true });
+
     const volume = interaction.options.getInteger('percent');
     queue.setVolume(volume);
+    await refreshPlayerPanel(interaction.client, queue);
     return interaction.reply(`🔊 Volume berhasil diatur ke **${volume}%**.`);
   },
 
@@ -499,12 +704,16 @@ export const volumeCommand = {
 
     if (!queue) return message.reply('❌ Tidak ada musik yang sedang diputar!');
 
+    const accessError = voiceControlError(message.member, queue);
+    if (accessError) return message.reply(accessError);
+
     const volume = parseInt(args[0], 10);
     if (isNaN(volume) || volume < 0 || volume > 100) {
       return message.reply('❌ Masukkan angka volume antara 0 sampai 100! Contoh: `!volume 80`');
     }
 
     queue.setVolume(volume);
+    await refreshPlayerPanel(message.client, queue);
     return message.reply(`🔊 Volume berhasil diatur ke **${volume}%**.`);
   },
 };
@@ -523,7 +732,16 @@ export const autoplayCommand = {
 
   async executeSlash(interaction, client) {
     const enabled = interaction.options.getBoolean('enabled');
+    const current = client.store?.ensureGuildSettings?.(interaction.guildId) || { autoplay: false };
+    if (enabled !== null && !canManageMusicSettings(interaction.member, current)) {
+      return interaction.reply({
+        content: '❌ Kamu memerlukan permission Manage Server atau control role yang dikonfigurasi untuk mengubah autoplay.',
+        ephemeral: true,
+      });
+    }
     const settings = updateAutoplay(client, interaction.guildId, enabled, interaction.user.id);
+    const queue = getDisTube()?.getQueue(interaction.guildId);
+    if (queue) await refreshPlayerPanel(client, queue);
     return interaction.reply({
       content: formatAutoplayStatus(settings.autoplay),
       ephemeral: true,
@@ -537,7 +755,13 @@ export const autoplayCommand = {
     }
 
     const enabled = value === 'status' ? null : value === 'on';
+    const current = client.store?.ensureGuildSettings?.(message.guildId) || { autoplay: false };
+    if (enabled !== null && !canManageMusicSettings(message.member, current)) {
+      return message.reply('❌ Kamu memerlukan permission Manage Server atau control role yang dikonfigurasi untuk mengubah autoplay.');
+    }
     const settings = updateAutoplay(client, message.guildId, enabled, message.author.id);
+    const queue = getDisTube()?.getQueue(message.guildId);
+    if (queue) await refreshPlayerPanel(client, queue);
     return message.reply(formatAutoplayStatus(settings.autoplay));
   },
 };
@@ -636,6 +860,13 @@ function buildDiagnosticsEmbed(guild, member, textChannel, client) {
   const textPermissions = botMember ? textChannel?.permissionsFor(botMember) : null;
   const voicePermissions = botMember && userVoice ? userVoice.permissionsFor(botMember) : null;
   const websocketPing = client.ws.ping >= 0 ? `${Math.round(client.ws.ping)}ms` : 'Belum tersedia';
+  const music = getMusicHealth();
+  const providerStatus = music.ready
+    ? `✅ Ready • PO token ${music.poToken ? 'aktif' : 'fallback'} • warm-up ${music.warmup}`
+    : `⚠️ Starting • warm-up ${music.warmup}`;
+  const proxyStatus = music.proxy.total
+    ? `✅ ${music.proxy.available}/${music.proxy.total} siap • ${music.proxy.busy} dipakai • ${music.proxy.coolingDown} cooldown • ${music.proxy.failures} gagal`
+    : 'ℹ️ Koneksi YouTube langsung tanpa proxy.';
 
   const voiceAlignment = !botVoice
     ? 'ℹ️ Bot belum berada di voice channel.'
@@ -682,6 +913,8 @@ function buildDiagnosticsEmbed(guild, member, textChannel, client) {
       },
       { name: '📑 Queue', value: queueStatus, inline: true },
       { name: '⚡ Discord WS', value: websocketPing, inline: true },
+      { name: '🎼 YouTube Pipeline', value: providerStatus, inline: false },
+      { name: '🌐 Proxy Pool', value: proxyStatus, inline: false },
     )
     .setFooter({ text: 'Read-only diagnostic • tidak mengubah konfigurasi' })
     .setTimestamp();
@@ -697,41 +930,4 @@ function formatPermissionStatus(permissions, requiredPermissions) {
   return missing.length
     ? `❌ Missing: ${missing.join(', ')}`
     : '✅ Semua permission yang dibutuhkan tersedia.';
-}
-
-
-function buildQueueEmbed(queue) {
-  const currentSong = queue.songs[0];
-  const upcomingSongs = queue.songs.slice(1, 11);
-
-  let description = `**Sedang Diputar:**\n▶️ ${formatSongLink(currentSong)} | \`${currentSong.formattedDuration}\` (oleh: <@${currentSong.user?.id}>)\n\n`;
-
-  if (upcomingSongs.length > 0) {
-    description += '**Daftar Lagu Berikutnya:**\n';
-    description += upcomingSongs
-      .map((song, index) => {
-        return `\`${index + 1}.\` ${formatSongLink(song)} | \`${song.formattedDuration}\` (oleh: <@${song.user?.id}>)`;
-      })
-      .join('\n');
-
-    if (queue.songs.length > 11) {
-      description += `\n*...dan ${queue.songs.length - 11} lagu lainnya.*`;
-    }
-  } else {
-    description += '*Tidak ada lagu lagi di dalam antrean.*';
-  }
-
-  return new EmbedBuilder()
-    .setColor(0x5865F2)
-    .setTitle(`📑 Antrean Playlist - ${queue.voiceChannel?.name || 'Voice'}`)
-    .setDescription(description)
-    .addFields(
-      { name: '🔢 Total Lagu', value: `${queue.songs.length} lagu`, inline: true },
-      { name: '⏱️ Total Durasi', value: queue.formattedDuration || 'N/A', inline: true },
-      { name: '⏮️ Riwayat Lagu Lalu', value: `${queue.previousSongs.length} lagu`, inline: true },
-      { name: '🔁 Loop Mode', value: formatRepeatMode(queue.repeatMode), inline: true },
-      { name: '🔊 Volume', value: `${queue.volume}%`, inline: true },
-    )
-    .setFooter({ text: 'Gunakan tombol kontrol di pesan pemutar untuk navigasi cepat' })
-    .setTimestamp();
 }

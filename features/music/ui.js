@@ -52,6 +52,62 @@ export function createNowPlayingEmbed(queue, song) {
     .setTimestamp();
 }
 
+export function createQueueEmbed(queue, requestedPage = 0) {
+  const pageCount = Math.max(1, Math.ceil(Math.max(0, queue.songs.length - 1) / 10));
+  const page = Math.min(Math.max(Number(requestedPage) || 0, 0), pageCount - 1);
+  const currentSong = queue.songs[0];
+  const start = 1 + page * 10;
+  const upcomingSongs = queue.songs.slice(start, start + 10);
+  let description = `**Sedang Diputar:**\n▶️ ${formatSongLink(currentSong)} | \`${currentSong.formattedDuration || 'N/A'}\` (${requesterLabel(currentSong)})\n\n`;
+
+  if (upcomingSongs.length) {
+    description += '**Daftar Lagu Berikutnya:**\n';
+    description += upcomingSongs.map((song, index) => {
+      return `\`${start + index}.\` ${formatSongLink(song)} | \`${song.formattedDuration || 'N/A'}\` (${requesterLabel(song)})`;
+    }).join('\n');
+  } else {
+    description += '*Tidak ada lagu lagi di dalam antrean.*';
+  }
+
+  return new EmbedBuilder()
+    .setColor(0x5865F2)
+    .setTitle(`📑 Antrean Playlist - ${queue.voiceChannel?.name || 'Voice'}`)
+    .setDescription(description)
+    .addFields(
+      { name: '🔢 Total Lagu', value: `${queue.songs.length} lagu`, inline: true },
+      { name: '⏱️ Total Durasi', value: queue.formattedDuration || 'N/A', inline: true },
+      { name: '⏮️ Riwayat', value: `${queue.previousSongs?.length || 0} lagu`, inline: true },
+      { name: '🔁 Loop Mode', value: formatRepeatMode(queue.repeatMode), inline: true },
+      { name: '🔊 Volume', value: `${queue.volume}%`, inline: true },
+    )
+    .setFooter({ text: `Halaman ${page + 1}/${pageCount} • Gunakan kontrol untuk navigasi` })
+    .setTimestamp();
+}
+
+export function createQueuePagination(queue, requestedPage = 0) {
+  const pageCount = Math.max(1, Math.ceil(Math.max(0, queue.songs.length - 1) / 10));
+  if (pageCount === 1) return [];
+  const page = Math.min(Math.max(Number(requestedPage) || 0, 0), pageCount - 1);
+  return [new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`music_queue_page:${Math.max(0, page - 1)}`)
+      .setLabel('Sebelumnya')
+      .setEmoji('◀️')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(page === 0),
+    new ButtonBuilder()
+      .setCustomId(`music_queue_page:${Math.min(pageCount - 1, page + 1)}`)
+      .setLabel('Berikutnya')
+      .setEmoji('▶️')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(page === pageCount - 1),
+  )];
+}
+
+function requesterLabel(song) {
+  return song.user?.id ? `oleh <@${song.user.id}>` : 'requester tidak diketahui';
+}
+
 export function clampVolume(value, fallback = 50) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;

@@ -59,6 +59,8 @@ vibes-discord/
 - **Navigasi Lengkap**:
   - `skip` / `next`: Lanjut ke lagu berikutnya.
   - `prev` / `previous`: Putar balik ke lagu sebelumnya dari riwayat.
+  - `jump`: Lompat langsung ke nomor lagu berikutnya dari tampilan antrean.
+  - `seek`: Pindah ke waktu tertentu dengan format detik, `mm:ss`, atau `hh:mm:ss`.
   - `queue` / `playlist`: Tinjau urutan daftar putar.
   - `pause` & `resume`: Jeda dan lanjutkan pemutaran.
   - `stop`: Hentikan musik, bersihkan playlist, dan keluar dari voice channel.
@@ -88,6 +90,7 @@ Data disimpan sebagai aggregate activity. URL media tidak disimpan; track identi
 | Slash Command | Prefix Command | Deskripsi |
 | :--- | :--- | :--- |
 | `/play <query>` | `!play <query>` atau `!p <query>` | Putar link video, playlist, atau kata kunci judul YouTube |
+| `/search <query>` | `!search <query>`, `!find`, `!cari` | Cari YouTube dan pilih hasil dari menu Discord |
 | `/library` | `!library`, `!lib` | Buka card shared library untuk liked songs dan playlist |
 | `/like` | `!like`, `!love`, `!favorite` | Toggle lagu yang sedang diputar ke liked songs server |
 | `/liked list|play|shuffle|remove` | `!liked list|play|shuffle|remove <song-key>` | Lihat, putar, acak, atau hapus like milikmu |
@@ -101,6 +104,8 @@ Data disimpan sebagai aggregate activity. URL media tidak disimpan; track identi
 | `/playlist delete <id>` | `!playlist delete <id>` | Hapus shared playlist beserta isinya |
 | `/skip` | `!skip`, `!next`, `!s` | Lewati lagu yang sedang diputar |
 | `/prev` | `!prev`, `!previous`, `!back` | Putar kembali lagu sebelumnya |
+| `/jump <position>` | `!jump <position>`, `!goto` | Lompat ke nomor lagu dari tampilan antrean |
+| `/seek <time>` | `!seek <time>` | Pindah posisi lagu dengan detik, `mm:ss`, atau `hh:mm:ss` |
 | `/queue` | `!queue`, `!q`, `!list` | Lihat daftar antrean musik |
 | `/pause` | `!pause` | Jeda pemutaran lagu |
 | `/resume` | `!resume`, `!unpause` | Lanjutkan pemutaran lagu |
@@ -193,7 +198,7 @@ Dashboard memakai Discord OAuth2 authorization-code flow dan hanya menampilkan g
 3. Set `DASHBOARD_ENABLED=true`.
 4. Jalankan bot; buka `DASHBOARD_PUBLIC_URL`.
 
-Dashboard menyediakan health check, aggregate metrics, audit log, dan pengaturan volume/channel musik. Bot tetap bisa dijalankan tanpa dashboard dengan `DASHBOARD_ENABLED=false`.
+Dashboard menyediakan health check untuk Discord, YouTube warm-up, PO token, dan proxy pool; aggregate metrics; audit log; serta pengaturan volume/channel musik. Bot tetap bisa dijalankan tanpa dashboard dengan `DASHBOARD_ENABLED=false`.
 Jika dashboard dibuka melalui `DASHBOARD_PUBLIC_URL`, gunakan reverse proxy TLS yang meneruskan ke `DASHBOARD_HOST:DASHBOARD_PORT`. Default listener hanya loopback.
 
 ### 5. Jalankan Bot

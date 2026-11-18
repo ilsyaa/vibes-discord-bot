@@ -8,7 +8,6 @@ export const config = {
   clientId: process.env.CLIENT_ID || '',
   prefix: process.env.PREFIX || '!',
   defaultVolume: parseInteger(process.env.DEFAULT_VOLUME, 50, 'DEFAULT_VOLUME', 0, 100),
-  youtubeProxy: process.env.YOUTUBE_PROXY || '',
   databasePath: databasePath === ':memory:' ? databasePath : path.resolve(databasePath),
   databaseBackupDir: path.resolve(process.env.DATABASE_BACKUP_DIR || 'backups'),
   databaseBackupRetention: parseInteger(

@@ -9,6 +9,7 @@
     "dev": "node --watch index.js",
     "deploy": "node core/deploy.js",
     "backup": "node core/backup.js",
+    "smoke:youtube": "node scripts/youtube-smoke.js",
     "test": "node --test"
   },
   "keywords": [],
@@ -26,7 +27,13 @@
     "libsodium-wrappers": "^0.8.4",
     "undici": "^7.30.2"
   },
+  "allowScripts": {
+    "@discordjs/opus@0.11.0": true
+  },
+  "overrides": {
+    "tar": "^7.5.23"
+  },
   "engines": {
-    "node": ">=24.0.0"
+    "node": ">=26.0.0"
   }
 }

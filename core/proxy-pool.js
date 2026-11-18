@@ -119,7 +119,7 @@ export class ProxyPool {
       };
     }
 
-    const lease = await this.#acquire(signal);
+    let lease = await this.#acquire(signal);
     let failed = false;
     let closed = false;
     const markFailed = () => {
@@ -129,6 +129,12 @@ export class ProxyPool {
     return {
       fetch: async (input, init = {}) => {
         if (closed) throw new Error('Proxy session is closed');
+        if (failed && lease) {
+          this.#release(lease.entry, new Error('proxy session failed'));
+          lease = null;
+          failed = false;
+        }
+        if (!lease) lease = await this.#acquire(init.signal || signal);
         try {
           const response = await this.#fetch(input, { ...init, dispatcher: lease.entry.agent });
           if (statusFailure(response.status)) markFailed();
@@ -141,7 +147,8 @@ export class ProxyPool {
       close: async () => {
         if (closed) return;
         closed = true;
-        this.#release(lease.entry, failed ? new Error('proxy session failed') : undefined);
+        if (lease) this.#release(lease.entry, failed ? new Error('proxy session failed') : undefined);
+        lease = null;
       },
     };
   }

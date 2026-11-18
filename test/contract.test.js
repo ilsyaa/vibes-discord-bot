@@ -8,23 +8,30 @@ import { Readable } from 'node:stream';
 import { openStore } from '../core/storage/database.js';
 import { createDashboardServer } from '../dashboard/server.js';
 import { backupDatabase } from '../core/backup.js';
-import { helpCommand } from '../features/general/commands.js';
+import { helpCommand, profileCommand } from '../features/general/commands.js';
 import { renderProfileCard } from '../features/general/profile-card.js';
-import { autoplayCommand } from '../features/music/commands.js';
+import { autoplayCommand, jumpCommand, parseSeekTime, seekCommand } from '../features/music/commands.js';
 import { adjustVolume } from '../features/music/interactions.js';
+import { canManageMusicSettings, voiceControlError } from '../features/music/access.js';
 import {
   selectAutoplayRecommendation,
   startPoTokenProvider,
   warmYoutubePipeline,
   hydrateSongMetadata,
+  getMusicHealth,
+  refreshPlayerPanel,
+  retirePlayerPanel,
 } from '../features/music/player.js';
 import {
   clampVolume,
   createPlayerButtons,
+  createQueueEmbed,
+  createQueuePagination,
   createNowPlayingEmbed,
   formatSongLink,
   getSongTitle,
 } from '../features/music/ui.js';
+import { createSearchMenu, searchCommand } from '../features/music/search.js';
 
 import { ProxyPool } from '../core/proxy-pool.js';
 import { createStreamRelay } from '../core/stream-relay.js';
@@ -36,6 +43,34 @@ import {
   playlistCommand,
   libraryCommand,
 } from '../features/music/library.js';
+
+test('music health is safe before provider initialization', () => {
+  assert.deepEqual(getMusicHealth(), {
+    ready: false,
+    poToken: false,
+    warmup: 'idle',
+    lastWarmupAt: null,
+    lastStreamErrorAt: null,
+    proxy: {
+      total: 0,
+      available: 0,
+      busy: 0,
+      coolingDown: 0,
+      failures: 0,
+    },
+  });
+});
+
+test('seek parsing and queue navigation commands expose safe contracts', () => {
+  assert.equal(parseSeekTime('90'), 90);
+  assert.equal(parseSeekTime('1:30'), 90);
+  assert.equal(parseSeekTime('1:02:03'), 3723);
+  assert.equal(parseSeekTime('1:60'), null);
+  assert.equal(parseSeekTime('-1'), null);
+  assert.equal(parseSeekTime(''), null);
+  assert.equal(jumpCommand.data.toJSON().options[0].min_value, 1);
+  assert.equal(seekCommand.data.toJSON().options[0].required, true);
+});
 
 
 test('empty YouTube song names recover from fetched metadata', () => {
@@ -187,7 +222,22 @@ test('dashboard binds OAuth callback to the initiating browser', async () => {
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const port = server.address().port;
   const health = await fetch(`http://127.0.0.1:${port}/health`);
-  assert.deepEqual(await health.json(), { ok: true });
+  assert.equal(health.status, 503);
+  assert.deepEqual(await health.json(), {
+    ok: false,
+    gateway: 'not_ready',
+    youtube: 'not_ready',
+    poToken: 'fallback',
+    proxy: {
+      total: 0,
+      available: 0,
+      busy: 0,
+      coolingDown: 0,
+      failures: 0,
+    },
+  });
+  const dashboard = await fetch(`http://127.0.0.1:${port}/`);
+  assert.match(dashboard.headers.get('content-security-policy'), /frame-ancestors 'none'/u);
   const malformedCookie = await fetch(`http://127.0.0.1:${port}/api/me`, {
     headers: { cookie: 'vibes_session=%' },
   });
@@ -223,6 +273,37 @@ test('profile card renders a PNG', async () => {
   assert.equal(image.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
 });
 
+test('profile command renders and replies with its attachment', async () => {
+  let payload;
+  await profileCommand.executeSlash({
+    user: {
+      id: 'user-a',
+      username: 'User A',
+      displayAvatarURL: () => '',
+    },
+    reply(value) {
+      payload = value;
+      return value;
+    },
+  }, {
+    guilds: { cache: new Map() },
+    store: null,
+  });
+  assert.equal(payload.files[0].name, 'vibes-profile-user-a.png');
+});
+
+test('music controls require the active voice channel and protect settings', () => {
+  const queue = { voiceChannel: { id: 'voice-a' } };
+  assert.match(voiceControlError({ voice: { channel: null } }, queue), /voice channel/u);
+  assert.match(voiceControlError({ voice: { channel: { id: 'voice-b' } } }, queue), /sama dengan bot/u);
+  assert.equal(voiceControlError({ voice: { channel: { id: 'voice-a' } } }, queue), null);
+  assert.equal(canManageMusicSettings({ permissions: { has: () => true } }, {}), true);
+  assert.equal(canManageMusicSettings({ permissions: String(1n << 5n) }, {}), true);
+  assert.equal(canManageMusicSettings({ permissions: { has: () => false }, roles: { cache: new Map([['role-a', {}]]) } }, { controlRoleId: 'role-a' }), true);
+  assert.equal(canManageMusicSettings({ permissions: '0', roles: ['role-a'] }, { controlRoleId: 'role-a' }), true);
+  assert.equal(canManageMusicSettings({ permissions: { has: () => false }, roles: { cache: new Map() } }, {}), false);
+});
+
 test('autoplay command persists an explicit opt-in', async () => {
   let settings = { autoplay: false };
   const store = {
@@ -238,6 +319,7 @@ test('autoplay command persists an explicit opt-in', async () => {
   const message = {
     guildId: 'guild-a',
     author: { id: 'user-a' },
+    member: { permissions: { has: () => true } },
     reply(value) {
       replies.push(value);
       return Promise.resolve(value);
@@ -294,6 +376,60 @@ test('player controls expose autoplay and bounded volume buttons', () => {
   assert.equal(adjustVolume(100, 1), 100);
   assert.equal(adjustVolume(50, 1), 60);
 });
+
+test('queue pagination covers every upcoming track and disables boundaries', () => {
+  const songs = Array.from({ length: 24 }, (_, index) => ({
+    name: `Track ${index + 1}`,
+    url: `https://youtube.example/${index + 1}`,
+    formattedDuration: '3:00',
+    user: { id: `user-${index + 1}` },
+  }));
+  const queue = {
+    songs,
+    previousSongs: [],
+    voiceChannel: { name: 'Music' },
+    formattedDuration: '1:12:00',
+    repeatMode: 0,
+    volume: 50,
+  };
+  assert.match(createQueueEmbed(queue, 2).data.footer.text, /Halaman 3\/3/u);
+  assert.match(createQueueEmbed(queue, 2).data.description, /Track 24/u);
+  const first = createQueuePagination(queue, 0)[0].toJSON().components;
+  const last = createQueuePagination(queue, 2)[0].toJSON().components;
+  assert.equal(first[0].disabled, true);
+  assert.equal(first[1].disabled, false);
+  assert.equal(last[0].disabled, false);
+  assert.equal(last[1].disabled, true);
+});
+
+test('search menu is owner-bound and player panel stays authoritative', async () => {
+  assert.equal(searchCommand.data.name, 'search');
+  const menu = createSearchMenu([{
+    name: 'A'.repeat(120),
+    url: 'https://www.youtube.com/watch?v=video-a',
+    uploader: { name: 'Artist A' },
+    formattedDuration: '3:00',
+  }], 'user-a').toJSON();
+  assert.equal(menu.components[0].custom_id, 'music_search_select:user-a');
+  assert.equal(menu.components[0].options[0].label.length, 100);
+
+  const edits = [];
+  const queue = {
+    id: 'guild-a',
+    paused: false,
+    repeatMode: 0,
+    volume: 50,
+    songs: [{ name: 'Track A', url: 'https://youtube.example/a', formattedDuration: '3:00' }],
+    previousSongs: [],
+    _lastPlayerMessage: { edit: async (payload) => edits.push(payload) },
+  };
+  assert.equal(await refreshPlayerPanel({ store: null }, queue), true);
+  assert.equal(edits[0].components.length, 3);
+  assert.equal(await retirePlayerPanel(queue), true);
+  assert.deepEqual(edits[1].components, []);
+  assert.equal(queue._lastPlayerMessage, null);
+});
+
 test('shared music commands and save menu expose the library UX', () => {
   assert.equal(likeCommand.data.name, 'like');
   assert.equal(likedCommand.data.name, 'liked');
@@ -319,10 +455,11 @@ test('help lists shared library and complete prefix controls', async () => {
   }, {});
   const fields = payload.embeds[0].data.fields;
   const library = fields.find((field) => field.name.includes('Shared Music Library'));
-  const music = fields.find((field) => field.name.includes('Musik'));
+  const music = fields.filter((field) => field.name.includes('Musik')).map((field) => field.value).join('\n');
   assert.match(library.value, /\/playlist add <id> \[song-key\]/u);
   assert.match(library.value, /liked song anggota lain/u);
-  assert.match(music.value, /!resume/u);
+  assert.match(music, /!resume/u);
+  assert.match(music, /!seek/u);
 });
 
 
@@ -421,6 +558,27 @@ test('proxy sessions pin one lease across media range requests', async () => {
   assert.deepEqual(used, ['192.0.2.20', '192.0.2.20']);
   await session.close();
   assert.equal(pool.snapshot().coolingDown, 1);
+  await pool.close();
+});
+
+test('proxy sessions rotate after a failed response', async () => {
+  const used = [];
+  const pool = new ProxyPool({
+    proxies: ['192.0.2.30:8000:user:pass', '192.0.2.31:8000:user:pass'],
+    cooldownMs: 1_000,
+    failureCooldownMs: 5_000,
+    agentFactory: (uri) => ({ uri, close: async () => {} }),
+    fetch: async (_input, init) => {
+      used.push(new URL(init.dispatcher.uri).hostname);
+      return new Response(used.length === 1 ? 'blocked' : 'ok', { status: used.length === 1 ? 503 : 200 });
+    },
+  });
+
+  const session = await pool.createSession();
+  await (await session.fetch('https://youtube.example/media')).text();
+  await (await session.fetch('https://youtube.example/media')).text();
+  assert.deepEqual(used, ['192.0.2.30', '192.0.2.31']);
+  await session.close();
   await pool.close();
 });
 

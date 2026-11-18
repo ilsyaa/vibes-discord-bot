@@ -1,5 +1,6 @@
-import { getDisTube, skipWithAutoplay, ensureSongMetadata } from './player.js';
-import { clampVolume, formatRepeatMode, createNowPlayingEmbed, createPlayerButtons, formatSongLink, getSongTitle } from './ui.js';
+import { getDisTube, skipWithAutoplay, ensureSongMetadata, refreshPlayerPanel, retirePlayerPanel } from './player.js';
+import { clampVolume, formatRepeatMode, createQueueEmbed, createQueuePagination, getSongTitle } from './ui.js';
+import { canManageMusicSettings, voiceControlError } from './access.js';
 import {
   createPlaylistSelectMenu,
   handleLibraryInteraction,
@@ -18,10 +19,23 @@ export async function handleMusicButton(interaction, client) {
   const distube = getDisTube();
   const queue = distube?.getQueue(guildId);
 
-  const memberVoice = member.voice?.channel;
-  if (!memberVoice) {
+  if (customId.startsWith('music_queue_page:')) {
+    if (!queue?.songs?.length) {
+      await interaction.reply({ content: '❌ Antrean playlist saat ini kosong!', ephemeral: true });
+      return true;
+    }
+    const page = Number(customId.split(':')[1]);
+    await interaction.update({
+      embeds: [createQueueEmbed(queue, page)],
+      components: createQueuePagination(queue, page),
+    });
+    return true;
+  }
+
+  const accessError = voiceControlError(member, queue);
+  if (accessError) {
     await interaction.reply({
-      content: '❌ Kamu harus berada di dalam voice channel untuk memakai tombol kontrol musik!',
+      content: accessError,
       ephemeral: true,
     });
     return true;
@@ -99,7 +113,7 @@ export async function handleMusicButton(interaction, client) {
           });
         }
 
-        await refreshPlayerMessage(interaction, queue, client);
+        await refreshPlayerPanel(client, queue);
         break;
       }
 
@@ -147,6 +161,7 @@ export async function handleMusicButton(interaction, client) {
         await interaction.reply({
           content: `🔀 **${member.user.username}** telah mengacak urutan playlist!`,
         });
+        await refreshPlayerPanel(client, queue);
         break;
       }
 
@@ -158,7 +173,7 @@ export async function handleMusicButton(interaction, client) {
           content: `🔁 **${member.user.username}** mengubah mode repeat ke: **${formatRepeatMode(nextMode)}**`,
         });
 
-        await refreshPlayerMessage(interaction, queue, client);
+        await refreshPlayerPanel(client, queue);
         break;
       }
 
@@ -170,12 +185,19 @@ export async function handleMusicButton(interaction, client) {
         await interaction.reply({
           content: `🔊 **${member.user.username}** mengubah volume ke **${volume}%**.`,
         });
-        await refreshPlayerMessage(interaction, queue, client);
+        await refreshPlayerPanel(client, queue);
         break;
       }
 
       case 'music_autoplay': {
         const current = client.store?.ensureGuildSettings?.(guildId) || { autoplay: false };
+        if (!canManageMusicSettings(member, current)) {
+          await interaction.reply({
+            content: '❌ Kamu memerlukan permission Manage Server atau control role yang dikonfigurasi untuk mengubah autoplay.',
+            ephemeral: true,
+          });
+          break;
+        }
         const enabled = !current.autoplay;
         const settings = client.store?.updateGuildSettings?.(
           guildId,
@@ -187,12 +209,13 @@ export async function handleMusicButton(interaction, client) {
             ? '✅ Autoplay YouTube aktif. Bot akan melanjutkan dengan rekomendasi saat antrean habis.'
             : '⏹️ Autoplay YouTube nonaktif. Bot berhenti setelah antrean habis.',
         });
-        await refreshPlayerMessage(interaction, queue, client);
+        await refreshPlayerPanel(client, queue);
         break;
       }
 
       case 'music_stop': {
         await queue.stop();
+        await retirePlayerPanel(queue);
         await interaction.reply({
           content: `⏹️ **${member.user.username}** telah menghentikan pemutaran musik.`,
         });
@@ -200,19 +223,9 @@ export async function handleMusicButton(interaction, client) {
       }
 
       case 'music_queue': {
-        const currentSong = queue.songs[0];
-        const upcomingSongs = queue.songs.slice(1, 6);
-
-        let text = `**Sedang Diputar:** ${formatSongLink(currentSong)} (${currentSong.formattedDuration})\n\n`;
-        if (upcomingSongs.length > 0) {
-          text += '**Berikutnya:**\n' + upcomingSongs.map((s, i) => `${i + 1}. ${formatSongLink(s)}`).join('\n');
-          if (queue.songs.length > 6) text += `\n*...dan ${queue.songs.length - 6} lagu lainnya.*`;
-        } else {
-          text += '*Tidak ada lagu lanjutan di antrean.*';
-        }
-
         await interaction.reply({
-          content: text,
+          embeds: [createQueueEmbed(queue)],
+          components: createQueuePagination(queue),
           ephemeral: true,
         });
         break;
@@ -247,15 +260,4 @@ export async function handleMusicButton(interaction, client) {
 export function adjustVolume(current, direction, step = 10) {
   const delta = direction >= 0 ? Math.abs(step) : -Math.abs(step);
   return clampVolume(clampVolume(current) + delta);
-}
-
-async function refreshPlayerMessage(interaction, queue, client) {
-  if (!interaction.message || !queue?.songs?.[0]) return;
-
-  await interaction.message.edit({
-    embeds: [createNowPlayingEmbed(queue, queue.songs[0])],
-    components: createPlayerButtons(queue, {
-      autoplayEnabled: client?.store?.getGuildSettings?.(queue.id)?.autoplay === true,
-    }),
-  }).catch(() => {});
 }

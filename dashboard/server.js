@@ -1,5 +1,6 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
+import { getMusicHealth } from '../features/music/player.js';
 
 const DISCORD_API = 'https://discord.com/api/v10';
 const SESSION_COOKIE = 'vibes_session';
@@ -44,11 +45,27 @@ async function routeRequest(request, response, context) {
   const url = new URL(request.url || '/', `http://${request.headers.host || 'localhost'}`);
 
   if (url.pathname === '/health' && request.method === 'GET') {
-    return sendJson(response, 200, { ok: true });
+    const gatewayReady = context.client.isReady();
+    const music = getMusicHealth();
+    const ready = gatewayReady && music.ready && music.warmup === 'ready';
+    return sendJson(response, ready ? 200 : 503, {
+      ok: ready,
+      gateway: gatewayReady ? 'ready' : 'not_ready',
+      youtube: music.ready ? music.warmup : 'not_ready',
+      poToken: music.poToken ? 'ready' : 'fallback',
+      proxy: {
+        total: music.proxy.total,
+        available: music.proxy.available,
+        busy: music.proxy.busy,
+        coolingDown: music.proxy.coolingDown,
+        failures: music.proxy.failures,
+      },
+    });
   }
 
   if (url.pathname === '/' && request.method === 'GET') {
-    return sendHtml(response, 200, renderDashboardHtml());
+    const nonce = randomToken(18);
+    return sendHtml(response, 200, renderDashboardHtml(nonce), nonce);
   }
 
   if (url.pathname === '/auth/login' && request.method === 'GET') {
@@ -461,26 +478,33 @@ function sendJson(response, status, body) {
   response.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'no-referrer',
   });
   response.end(JSON.stringify(body));
 }
 
-function sendHtml(response, status, body) {
+function sendHtml(response, status, body, nonce) {
   response.writeHead(status, {
     'Content-Type': 'text/html; charset=utf-8',
     'Cache-Control': 'no-store',
+    'Content-Security-Policy': `default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`,
+    'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+    'Referrer-Policy': 'no-referrer',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
   });
   response.end(body);
 }
 
-function renderDashboardHtml() {
+function renderDashboardHtml(nonce) {
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Vibes Control Center</title>
-<style>
+<style nonce="${nonce}">
 :root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; background: #10121a; color: #eef1f7; }
 body { margin: 0; background: radial-gradient(circle at top right, #27335b, #10121a 45%); min-height: 100vh; }
 main { max-width: 1100px; margin: 0 auto; padding: 32px 20px 64px; }
@@ -510,7 +534,7 @@ small { color: #9ca8c1; }
 </header>
 <section id="app" class="stack"><div class="card">Loading dashboard…</div></section>
 </main>
-<script>
+<script nonce="${nonce}">
 let csrfToken = '';
 let selectedGuild = '';
 const app = document.getElementById('app');

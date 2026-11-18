@@ -494,12 +494,13 @@ async function playCollection(source, songs, client, ephemeral) {
   const member = source.member;
   const loading = `🔍 Memproses ${songs.length} lagu dari shared library...`;
   const isInteraction = source.isChatInputCommand?.() || source.isButton?.();
+  const existingQueue = distube.getQueue(source.guildId);
   if (isInteraction) {
     if (!source.deferred && !source.replied) await source.deferReply({ ephemeral });
     await source.editReply({ content: loading });
     try {
       for (const song of songs) await distube.play(voiceChannel, song.url, { textChannel, member });
-      applyGuildPlaybackSettings(distube, client, source.guildId);
+      if (!existingQueue) applyGuildPlaybackSettings(distube, client, source.guildId);
       return source.editReply({ content: `✅ Menambahkan ${songs.length} lagu ke antrean.` });
     } catch (error) {
       return source.editReply({ content: `⚠️ Gagal memutar koleksi: ${friendlyError(error)}` });
@@ -508,7 +509,7 @@ async function playCollection(source, songs, client, ephemeral) {
 
   try {
     for (const song of songs) await distube.play(voiceChannel, song.url, { textChannel, member });
-    applyGuildPlaybackSettings(distube, client, source.guildId);
+    if (!existingQueue) applyGuildPlaybackSettings(distube, client, source.guildId);
     return source.reply({ content: `✅ Menambahkan ${songs.length} lagu ke antrean.` });
   } catch (error) {
     return source.reply({ content: `⚠️ Gagal memutar koleksi: ${friendlyError(error)}` });

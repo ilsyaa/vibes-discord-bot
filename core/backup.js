@@ -1,9 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import sqlite, { backup } from 'node:sqlite';
+import { backup, Database } from 'node:sqlite';
 import { config } from './config.js';
-
-const Database = sqlite.Database || sqlite.DatabaseSync;
 
 export async function backupDatabase({
   sourcePath = config.databasePath,

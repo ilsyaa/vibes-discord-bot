@@ -4,6 +4,7 @@ import util from 'node:util';
 
 let errorLogStream = null;
 let currentLogFilePath = null;
+let closePromise = null;
 
 /**
  * Initializes one timestamped error log for the current process session.
@@ -41,16 +42,29 @@ export function initLogger() {
     if (errorLogStream) {
       errorLogStream.write(`\n=== SESSION CLOSED AT ${new Date().toISOString()} ===\n`);
       errorLogStream.end();
+      errorLogStream = null;
     }
   });
 
   return currentLogFilePath;
 }
 
+export function closeLogger() {
+  if (closePromise) return closePromise;
+  if (!errorLogStream) return Promise.resolve();
+  const stream = errorLogStream;
+  errorLogStream = null;
+  closePromise = new Promise((resolve) => {
+    stream.end(`\n=== SESSION CLOSED AT ${new Date().toISOString()} ===\n`, resolve);
+  });
+  return closePromise;
+}
+
 function redactMessage(message) {
   return message
     .replace(/("(?:access_token|refresh_token|client_secret|authorization|cookie|token|secret|code)"\s*:\s*)"[^"]*"/giu, '$1"[REDACTED]"')
-    .replace(/((?:authorization|cookie|token|secret|code)(?:=|:\s+))([^\s,;&]+)/giu, '$1[REDACTED]');
+    .replace(/(\b(?:authorization|cookie|token|secret)(?:=|:\s+))([^\s,;&]+)/giu, '$1[REDACTED]')
+    .replace(/(\bcode=)([^\s,;&]+)/giu, '$1[REDACTED]');
 }
 
 export function logError(error, context = '') {

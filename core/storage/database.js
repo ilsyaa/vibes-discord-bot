@@ -1,10 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import sqlite from 'node:sqlite';
+import { Database } from 'node:sqlite';
 import { createHash } from 'node:crypto';
 import { migrations } from './migrations.js';
-
-const Database = sqlite.Database || sqlite.DatabaseSync;
 
 const metricColumns = new Set(['plays', 'skips', 'failures', 'commands', 'active_minutes']);
 const userMetricColumns = new Set(['commands', 'plays', 'active_minutes']);
