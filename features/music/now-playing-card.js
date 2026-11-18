@@ -23,6 +23,9 @@ const TITLE_LINE_HEIGHT = 43;
 
 const COVER_CACHE = new Map();
 const COVER_CACHE_LIMIT = 64;
+const COVER_TIMEOUT_MS = 8_000;
+// YouTube answers dead/blocked videos with a 120x90 grey placeholder.
+const COVER_MIN_WIDTH = 160;
 
 export const CARD_FILENAME = 'now-playing.png';
 
@@ -85,7 +88,6 @@ function buildChips(queue, song) {
     repeat,
     queueLength > 0 ? `${queueLength} DI ANTREAN` : 'ANTREAN KOSONG',
     requester ? `OLEH ${requester}` : null,
-    paused ? 'DIJEDA' : null,
   ].filter(Boolean);
 }
 
@@ -406,15 +408,37 @@ async function loadCover(url) {
   if (!url) return null;
   if (COVER_CACHE.has(url)) return COVER_CACHE.get(url);
 
+  const image = (await fetchCover(url)) ?? (await decodeCover(url));
+  rememberCover(url, image);
+  return image;
+}
+
+async function fetchCover(url) {
   try {
-    const image = await loadImage(url);
-    if (COVER_CACHE.size >= COVER_CACHE_LIMIT) {
-      COVER_CACHE.delete(COVER_CACHE.keys().next().value);
-    }
-    COVER_CACHE.set(url, image);
-    return image;
+    const response = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; vibes-discord/1.0)' },
+      signal: AbortSignal.timeout(COVER_TIMEOUT_MS),
+    });
+    if (!response.ok) return null;
+
+    const image = await loadImage(Buffer.from(await response.arrayBuffer()));
+    return image.width >= COVER_MIN_WIDTH ? image : null;
   } catch {
-    COVER_CACHE.set(url, null);
     return null;
   }
+}
+
+async function decodeCover(url) {
+  try {
+    return await loadImage(url);
+  } catch {
+    return null;
+  }
+}
+
+function rememberCover(url, image) {
+  if (COVER_CACHE.size >= COVER_CACHE_LIMIT) {
+    COVER_CACHE.delete(COVER_CACHE.keys().next().value);
+  }
+  COVER_CACHE.set(url, image);
 }
