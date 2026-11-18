@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { reactPending, settleReaction } from '../features/music/ui.js';
+import { reactPending, settleReaction, shouldAutoRefreshPanel } from '../features/music/ui.js';
 
 function fakeMessage() {
   const added = [];
@@ -45,4 +45,14 @@ test('reactPending mengembalikan null saat bot tidak punya izin reaction', async
   const message = { react: async () => { throw new Error('Missing Permissions'); } };
 
   assert.equal(await reactPending(message), null);
+});
+
+test('panel hanya auto-refresh saat lagu benar-benar berjalan', () => {
+  const playing = { paused: false, songs: [{}], _lastPlayerMessage: {} };
+
+  assert.equal(shouldAutoRefreshPanel(playing), true);
+  assert.equal(shouldAutoRefreshPanel({ ...playing, paused: true }), false);
+  assert.equal(shouldAutoRefreshPanel({ ...playing, songs: [] }), false);
+  assert.equal(shouldAutoRefreshPanel({ ...playing, _lastPlayerMessage: null }), false);
+  assert.equal(shouldAutoRefreshPanel(null), false);
 });

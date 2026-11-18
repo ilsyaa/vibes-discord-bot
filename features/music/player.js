@@ -9,10 +9,12 @@ import { EmbedBuilder, AttachmentBuilder } from 'discord.js';
 import { config } from '../../core/config.js';
 import { ProxyPool } from '../../core/proxy-pool.js';
 import { createStreamRelay } from '../../core/stream-relay.js';
-import { createNowPlayingEmbed, createPlayerButtons, getSongTitle } from './ui.js';
+import { createNowPlayingEmbed, createPlayerButtons, getSongTitle, shouldAutoRefreshPanel } from './ui.js';
 import { CARD_FILENAME, renderNowPlayingCard } from './now-playing-card.js';
 
 let distubeInstance = null;
+let panelHeartbeat = null;
+const PANEL_HEARTBEAT_MS = 15_000;
 let youtubePluginInstance = null;
 let youtubeProxyPool = null;
 let youtubeStreamRelay = null;
@@ -89,9 +91,46 @@ export async function refreshPlayerPanel(client, queue) {
   await ensureSongMetadata(song);
   try {
     await message.edit(await buildPlayerPayload(client, queue, song));
+    queue._panelRenderedSecond = Math.floor(Number(queue.currentTime) || 0);
     return true;
   } catch {
     return false;
+  }
+}
+
+function startPanelHeartbeat(client) {
+  if (panelHeartbeat) return;
+  panelHeartbeat = setInterval(() => {
+    void refreshPlayingPanels(client);
+  }, PANEL_HEARTBEAT_MS);
+  panelHeartbeat.unref?.();
+}
+
+function stopPanelHeartbeat() {
+  if (!panelHeartbeat) return;
+  clearInterval(panelHeartbeat);
+  panelHeartbeat = null;
+}
+
+async function refreshPlayingPanels(client) {
+  const distube = distubeInstance;
+  if (!distube?.queues) return;
+
+  for (const queue of distube.queues.values()) {
+    if (!shouldAutoRefreshPanel(queue)) continue;
+
+    const second = Math.floor(Number(queue.currentTime) || 0);
+    if (second === queue._panelRenderedSecond) continue;
+    if (queue._panelRefreshing) continue;
+
+    queue._panelRefreshing = true;
+    try {
+      await refreshPlayerPanel(client, queue);
+    } catch {
+      /* heartbeat failures must never break playback */
+    } finally {
+      queue._panelRefreshing = false;
+    }
   }
 }
 
@@ -447,6 +486,8 @@ export async function initMusicPlayer(client) {
     },
   });
 
+  startPanelHeartbeat(client);
+
   distube.on('playSong', async (queue, song) => {
     await recoverSongMetadata(song).catch((error) => {
       console.warn('⚠️ Gagal memulihkan metadata lagu yang sedang diputar:', error.message);
@@ -459,17 +500,19 @@ export async function initMusicPlayer(client) {
     if (!queue.textChannel) return;
 
     try {
+      // A new track gets a fresh panel at the bottom of the channel; the old one
+      // would otherwise sit far above and be missed.
+      const previous = queue._lastPlayerMessage;
+      queue._lastPlayerMessage = null;
+      queue._panelRenderedSecond = undefined;
+      if (previous) {
+        const deleted = await previous.delete().catch(() => null);
+        if (!deleted) await previous.edit({ components: [] }).catch(() => {});
+      }
+
       const payload = await buildPlayerPayload(client, queue, song);
-      if (queue._lastPlayerMessage) {
-        try {
-          await queue._lastPlayerMessage.edit(payload);
-        } catch {
-          queue._lastPlayerMessage = null;
-        }
-      }
-      if (!queue._lastPlayerMessage) {
-        queue._lastPlayerMessage = await queue.textChannel.send(payload);
-      }
+      queue._lastPlayerMessage = await queue.textChannel.send(payload);
+      queue._panelRenderedSecond = Math.floor(Number(queue.currentTime) || 0);
     } catch (err) {
       console.error('Error saat mengirim pesan playSong:', err.message);
     }
@@ -550,6 +593,7 @@ export async function initMusicPlayer(client) {
 }
 
 export async function closeMusicPlayer() {
+  stopPanelHeartbeat();
   const distube = distubeInstance;
   const provider = poTokenProvider;
   const pool = youtubeProxyPool;

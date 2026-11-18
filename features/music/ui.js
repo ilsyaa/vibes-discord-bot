@@ -22,6 +22,17 @@ export async function settleReaction(message, pending, emoji) {
   if (emoji) await message.react(emoji).catch(() => {});
 }
 
+/**
+ * The panel is a rendered image, so progress only moves when it is re-rendered.
+ * Paused or empty queues have nothing to update.
+ */
+export function shouldAutoRefreshPanel(queue) {
+  if (!queue?._lastPlayerMessage) return false;
+  if (queue.paused) return false;
+  if (!Array.isArray(queue.songs) || queue.songs.length === 0) return false;
+  return true;
+}
+
 export function formatRepeatMode(mode) {
   if (mode === 1) return '🔂 Lagu';
   if (mode === 2) return '🔁 Playlist';
