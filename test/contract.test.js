@@ -414,6 +414,7 @@ test('search menu is owner-bound and player panel stays authoritative', async ()
   assert.equal(menu.components[0].options[0].label.length, 100);
 
   const edits = [];
+  const deletions = [];
   const queue = {
     id: 'guild-a',
     paused: false,
@@ -421,12 +422,15 @@ test('search menu is owner-bound and player panel stays authoritative', async ()
     volume: 50,
     songs: [{ name: 'Track A', url: 'https://youtube.example/a', formattedDuration: '3:00' }],
     previousSongs: [],
-    _lastPlayerMessage: { edit: async (payload) => edits.push(payload) },
+    _lastPlayerMessage: {
+      edit: async (payload) => edits.push(payload),
+      delete: async () => deletions.push('panel'),
+    },
   };
   assert.equal(await refreshPlayerPanel({ store: null }, queue), true);
   assert.equal(edits[0].components.length, 3);
   assert.equal(await retirePlayerPanel(queue), true);
-  assert.deepEqual(edits[1].components, []);
+  assert.deepEqual(deletions, ['panel']);
   assert.equal(queue._lastPlayerMessage, null);
 });
 
