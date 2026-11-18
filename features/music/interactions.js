@@ -180,11 +180,10 @@ export async function handleMusicButton(interaction, client) {
       case 'music_volume_down':
       case 'music_volume_up': {
         const direction = customId === 'music_volume_up' ? 1 : -1;
-        const volume = adjustVolume(queue.volume, direction);
-        queue.setVolume(volume);
-        await interaction.reply({
-          content: `🔊 **${member.user.username}** mengubah volume ke **${volume}%**.`,
-        });
+        // Volume lives on the card, so acknowledge silently and repaint it
+        // instead of dropping a chat message in the channel.
+        await interaction.deferUpdate().catch(() => {});
+        queue.setVolume(adjustVolume(queue.volume, direction));
         await refreshPlayerPanel(client, queue);
         break;
       }
