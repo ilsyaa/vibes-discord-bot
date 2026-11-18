@@ -12,7 +12,7 @@ const PAD = 28;
 const ART_SIZE = 196;
 const GAP = 28;
 const RADIUS = 24;
-const TITLE_FONT = '700 34px sans-serif';
+const TITLE_FONT = '700 32px sans-serif';
 const ARTIST_FONT = '500 18px sans-serif';
 const LABEL_FONT = '700 12px sans-serif';
 const TIME_FONT = '600 13px sans-serif';
@@ -33,7 +33,7 @@ export async function renderNowPlayingCard(queue, song) {
   const ctx = canvas.getContext('2d');
 
   paintBackground(ctx, height);
-  paintCover(ctx, cover, queue?.paused);
+  paintCover(ctx, cover, queue?.paused, meta.artTop);
   paintMeta(ctx, meta, queue, song);
 
   return canvas.toBuffer('image/png');
@@ -44,16 +44,17 @@ function buildLayout(ctx, queue, song) {
   const columnWidth = WIDTH - columnX - PAD;
 
   ctx.font = TITLE_FONT;
-  const titleLines = wrapText(ctx, songTitle(song), columnWidth, 2);
+  const { lines: titleLines } = wrapText(ctx, songTitle(song), columnWidth, 2);
   ctx.font = ARTIST_FONT;
   const artist = ellipsize(ctx, artistName(song), columnWidth);
 
   const chips = buildChips(ctx, queue, song);
   const chipRows = packChips(ctx, chips, columnWidth);
 
-  const columnHeight = 18 + titleLines.length * 42 + 30 + 26 + 22 + chipRows.length * 36;
+  const columnHeight = 18 + titleLines.length * 44 + 34 + 26 + 22 + chipRows.length * 36;
   const contentHeight = Math.max(ART_SIZE, columnHeight);
   const height = PAD * 2 + contentHeight + 8;
+  const centeredArtTop = PAD + Math.max((contentHeight - ART_SIZE) / 2, 0);
 
   return {
     columnX,
@@ -62,7 +63,7 @@ function buildLayout(ctx, queue, song) {
     artist,
     chipRows,
     height,
-    artTop: PAD,
+    artTop: centeredArtTop,
     metaTop: PAD + (contentHeight - columnHeight) / 2,
   };
 }
@@ -121,8 +122,8 @@ function paintBackground(ctx, height) {
   ctx.fillRect(0, 0, WIDTH, height);
 }
 
-function paintCover(ctx, cover, paused) {
-  const y = PAD;
+function paintCover(ctx, cover, paused, artTop) {
+  const y = artTop;
 
   ctx.save();
   roundedRect(ctx, PAD, y, ART_SIZE, ART_SIZE, 18);
@@ -136,6 +137,16 @@ function paintCover(ctx, cover, paused) {
     fallback.addColorStop(1, '#161c30');
     ctx.fillStyle = fallback;
     ctx.fillRect(PAD, y, ART_SIZE, ART_SIZE);
+
+    ctx.beginPath();
+    ctx.arc(PAD + ART_SIZE / 2, y + ART_SIZE / 2, 40, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(PAD + ART_SIZE / 2, y + ART_SIZE / 2, 8, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.16)';
+    ctx.fill();
   }
 
   const shade = ctx.createLinearGradient(0, y + ART_SIZE * 0.45, 0, y + ART_SIZE);
@@ -192,9 +203,10 @@ function paintMeta(ctx, meta, queue, song) {
   ctx.fillStyle = '#f4f6ff';
   for (const line of titleLines) {
     ctx.fillText(line, columnX, y + 30);
-    y += 42;
+    y += 44;
   }
 
+  y += 4;
   ctx.font = ARTIST_FONT;
   ctx.fillStyle = '#9aa3c7';
   ctx.fillText(artist, columnX, y + 12);
@@ -278,26 +290,40 @@ function roundedRect(ctx, x, y, width, height, radius) {
 
 function wrapText(ctx, text, maxWidth, maxLines) {
   const words = String(text).split(/\s+/u).filter(Boolean);
+  if (words.length === 0) return { lines: ['Tanpa judul'], truncated: false };
+
   const lines = [];
   let current = '';
 
   for (const word of words) {
     const candidate = current ? `${current} ${word}` : word;
-    if (ctx.measureText(candidate).width <= maxWidth) {
+    if (!current || ctx.measureText(candidate).width <= maxWidth) {
       current = candidate;
       continue;
     }
-    if (current) lines.push(current);
+    lines.push(current);
     current = word;
-    if (lines.length === maxLines) break;
+  }
+  if (current) lines.push(current);
+
+  const truncated = lines.length > maxLines;
+  const visible = lines.slice(0, maxLines).map((line) => ellipsize(ctx, line, maxWidth));
+  if (truncated && visible.length > 0) {
+    visible[visible.length - 1] = withEllipsis(ctx, visible[visible.length - 1], maxWidth);
   }
 
-  if (lines.length < maxLines && current) lines.push(current);
-  if (lines.length === 0) return ['Tanpa judul'];
+  return { lines: visible, truncated };
+}
 
-  const lastIndex = lines.length - 1;
-  lines[lastIndex] = ellipsize(ctx, lines[lastIndex], maxWidth);
-  return lines;
+function withEllipsis(ctx, text, maxWidth) {
+  if (text.endsWith('…') && ctx.measureText(text).width <= maxWidth) return text;
+
+  const base = text.replace(/…$/u, '');
+  let trimmed = base;
+  while (trimmed.length > 1 && ctx.measureText(`${trimmed}…`).width > maxWidth) {
+    trimmed = trimmed.slice(0, -1);
+  }
+  return `${trimmed}…`;
 }
 
 function ellipsize(ctx, text, maxWidth) {
