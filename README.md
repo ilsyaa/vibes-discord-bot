@@ -85,6 +85,42 @@ Data disimpan sebagai aggregate activity. URL media tidak disimpan; track identi
 
 ---
 
+## 🛡️ Honeypot Anti-Scam
+
+Channel jebakan untuk spam scam (mis. "MrBeast giveaway") yang dikirim ke semua channel server.
+
+- Siapa pun yang mengirim **satu** pesan di channel honeypot langsung dihukum (ban atau kick), dan seluruh pesannya dalam 24 jam terakhir dihapus.
+- Pesan pemicu dihapus segera, jadi channel tetap bersih.
+- Owner server, bot itu sendiri, user/role pengecualian tidak pernah dihukum.
+- Pesan webhook tidak bisa diban/di-kick (webhook bukan user), hanya dihapus lalu dilaporkan.
+
+### Mode aksi: `ban`, `ban-kick`, `kick`
+
+| | `ban` (default) | `ban-kick` | `kick` |
+| :--- | :--- | :--- | :--- |
+| Menghapus riwayat | `delete_message_seconds` (server-side) | `delete_message_seconds` (server-side) | Purge manual per channel |
+| Cakupan | Semua channel | Semua channel | Hanya channel yang bisa dibaca bot |
+| Beban API | 1 request | 2 request (ban + unban) | 1 fetch + 1 delete per channel |
+| Status akhir user | Terban permanen | Kembali jadi member setelah ~1,5 detik | Langsung keluar dari server |
+| Catatan | — | Audit log mencatat ban + unban berpasangan | Thread tidak dipindai |
+
+Discord tidak menyediakan parameter hapus pesan pada endpoint kick, jadi `kick` memakai purge manual. `ban-kick` memakai ban hanya sebagai jalur penghapusan riwayat, lalu langsung meng-unban.
+
+Konfigurasi `.env`:
+
+```ini
+HONEYPOT_ACTION=ban-kick
+HONEYPOT_CHANNEL_IDS=123456789012345678,987654321098765432
+HONEYPOT_EXEMPT_ROLE_IDS=111111111111111111
+HONEYPOT_EXEMPT_USER_IDS=
+HONEYPOT_LOG_CHANNEL_ID=222222222222222222
+HONEYPOT_DELETE_WINDOW_SECONDS=86400
+```
+
+Izin bot yang dibutuhkan: **View Channel**, **Read Message History**, **Manage Messages**, plus **Ban Members** untuk mode `ban` atau **Kick Members** untuk mode `kick`. Posisi role bot harus di atas role target.
+
+---
+
 ## ⌨️ Daftar Perintah
 
 | Slash Command | Prefix Command | Deskripsi |

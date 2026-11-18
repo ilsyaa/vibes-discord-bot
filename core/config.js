@@ -40,6 +40,18 @@ export const config = {
     1_000,
     24 * 60 * 60 * 1_000,
   ),
+  honeypotChannelIds: parseIdList(process.env.HONEYPOT_CHANNEL_IDS, 'HONEYPOT_CHANNEL_IDS'),
+  honeypotExemptRoleIds: parseIdList(process.env.HONEYPOT_EXEMPT_ROLE_IDS, 'HONEYPOT_EXEMPT_ROLE_IDS'),
+  honeypotExemptUserIds: parseIdList(process.env.HONEYPOT_EXEMPT_USER_IDS, 'HONEYPOT_EXEMPT_USER_IDS'),
+  honeypotLogChannelId: parseIdList(process.env.HONEYPOT_LOG_CHANNEL_ID, 'HONEYPOT_LOG_CHANNEL_ID')[0] || '',
+  honeypotDeleteWindowSeconds: parseInteger(
+    process.env.HONEYPOT_DELETE_WINDOW_SECONDS,
+    24 * 60 * 60,
+    'HONEYPOT_DELETE_WINDOW_SECONDS',
+    0,
+    7 * 24 * 60 * 60,
+  ),
+  honeypotAction: parseAction(process.env.HONEYPOT_ACTION, 'ban'),
 };
 export function validateRuntimeConfig({
   requireToken = true,
@@ -73,6 +85,38 @@ function parseInteger(value, fallback, name, minimum, maximum) {
     throw new Error(`${name} must be an integer from ${minimum} to ${maximum}`);
   }
   return parsed;
+}
+
+/**
+ * Which punishment the honeypot applies:
+ * - ban: permanent ban, Discord wipes history via delete_message_seconds
+ * - kick: kick plus a manual per-channel history purge
+ * - ban-kick: ban (so Discord wipes history) then immediately unban
+ */
+export function parseAction(value, fallback = 'ban') {
+  if (value === undefined || value.trim() === '') return fallback;
+
+  const action = value.trim().toLowerCase();
+  if (!['ban', 'kick', 'ban-kick'].includes(action)) {
+    throw new Error('HONEYPOT_ACTION harus "ban", "kick", atau "ban-kick"');
+  }
+  return action;
+}
+
+/**
+ * Parse a comma/whitespace separated list of Discord snowflakes.
+ * Invalid tokens fail fast instead of silently disabling a guard.
+ */
+export function parseIdList(value, name = 'ID list') {
+  if (value === undefined || value === '') return [];
+
+  const ids = value.split(/[\s,]+/u).filter(Boolean);
+  for (const id of ids) {
+    if (!/^\d{15,25}$/u.test(id)) {
+      throw new Error(`${name} berisi ID Discord tidak valid: ${id}`);
+    }
+  }
+  return ids;
 }
 
 function normalizePublicUrl(value) {
