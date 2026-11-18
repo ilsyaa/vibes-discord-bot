@@ -7,7 +7,7 @@ export const migrations = [
         guild_id TEXT PRIMARY KEY,
         music_channel_id TEXT,
         control_role_id TEXT,
-        default_volume INTEGER NOT NULL DEFAULT 50 CHECK (default_volume BETWEEN 0 AND 100),
+        default_volume INTEGER NOT NULL DEFAULT 100 CHECK (default_volume BETWEEN 0 AND 100),
         autoplay INTEGER NOT NULL DEFAULT 0 CHECK (autoplay IN (0, 1)),
         locale TEXT NOT NULL DEFAULT 'id-ID',
         feature_flags_json TEXT NOT NULL DEFAULT '{}',

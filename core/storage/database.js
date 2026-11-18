@@ -7,7 +7,7 @@ import { migrations } from './migrations.js';
 const metricColumns = new Set(['plays', 'skips', 'failures', 'commands', 'active_minutes']);
 const userMetricColumns = new Set(['commands', 'plays', 'active_minutes']);
 
-export function openStore(databasePath, { defaultVolume = 50 } = {}) {
+export function openStore(databasePath, { defaultVolume = 100 } = {}) {
   if (databasePath !== ':memory:') {
     fs.mkdirSync(path.dirname(databasePath), { recursive: true });
   }
@@ -52,7 +52,7 @@ export function openStore(databasePath, { defaultVolume = 50 } = {}) {
 }
 
 export class Store {
-  constructor(database, { defaultVolume = 50 } = {}) {
+  constructor(database, { defaultVolume = 100 } = {}) {
     this.database = database;
     this.defaultVolume = defaultVolume;
   }

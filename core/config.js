@@ -7,7 +7,7 @@ export const config = {
   token: process.env.DISCORD_TOKEN || '',
   clientId: process.env.CLIENT_ID || '',
   prefix: process.env.PREFIX || '!',
-  defaultVolume: parseInteger(process.env.DEFAULT_VOLUME, 50, 'DEFAULT_VOLUME', 0, 100),
+  defaultVolume: parseInteger(process.env.DEFAULT_VOLUME, 100, 'DEFAULT_VOLUME', 0, 100),
   databasePath: databasePath === ':memory:' ? databasePath : path.resolve(databasePath),
   databaseBackupDir: path.resolve(process.env.DATABASE_BACKUP_DIR || 'backups'),
   databaseBackupRetention: parseInteger(
