@@ -14,6 +14,7 @@ import { CARD_FILENAME, renderNowPlayingCard } from './now-playing-card.js';
 
 let distubeInstance = null;
 let panelHeartbeat = null;
+const playerPanels = new Map();
 const PANEL_HEARTBEAT_MS = 15_000;
 let youtubePluginInstance = null;
 let youtubeProxyPool = null;
@@ -85,7 +86,7 @@ export async function buildPlayerPayload(client, queue, song) {
 }
 
 export async function refreshPlayerPanel(client, queue) {
-  const message = queue?._lastPlayerMessage;
+  const message = queue?._lastPlayerMessage ?? playerPanels.get(queue?.id);
   const song = queue?.songs?.[0];
   if (!message || !song) return false;
   await ensureSongMetadata(song);
@@ -139,9 +140,16 @@ async function refreshPlayingPanels(client) {
 }
 
 export async function retirePlayerPanel(queue) {
-  const message = queue?._lastPlayerMessage;
+  const message = queue?._lastPlayerMessage ?? playerPanels.get(queue?.id);
+  if (queue) {
+    queue._lastPlayerMessage = null;
+    queue._panelRenderedSecond = undefined;
+    playerPanels.delete(queue.id);
+  }
   if (!message) return false;
-  queue._lastPlayerMessage = null;
+
+  const deleted = await message.delete().catch(() => null);
+  if (deleted) return true;
   try {
     await message.edit({ components: [] });
     return true;
@@ -506,8 +514,9 @@ export async function initMusicPlayer(client) {
     try {
       // A new track gets a fresh panel at the bottom of the channel; the old one
       // would otherwise sit far above and be missed.
-      const previous = queue._lastPlayerMessage;
+      const previous = playerPanels.get(queue.id) ?? queue._lastPlayerMessage;
       queue._lastPlayerMessage = null;
+      playerPanels.delete(queue.id);
       queue._panelRenderedSecond = undefined;
       if (previous) {
         const deleted = await previous.delete().catch(() => null);
@@ -515,7 +524,9 @@ export async function initMusicPlayer(client) {
       }
 
       const payload = await buildPlayerPayload(client, queue, song);
-      queue._lastPlayerMessage = await queue.textChannel.send(payload);
+      const message = await queue.textChannel.send(payload);
+      queue._lastPlayerMessage = message;
+      playerPanels.set(queue.id, message);
       queue._panelRenderedSecond = Math.floor(Number(queue.currentTime) || 0);
     } catch (err) {
       console.error('Error saat mengirim pesan playSong:', err.message);
@@ -598,6 +609,7 @@ export async function initMusicPlayer(client) {
 
 export async function closeMusicPlayer() {
   stopPanelHeartbeat();
+  playerPanels.clear();
   const distube = distubeInstance;
   const provider = poTokenProvider;
   const pool = youtubeProxyPool;
