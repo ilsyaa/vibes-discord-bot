@@ -49,7 +49,7 @@ function buildLayout(ctx, queue, song) {
   const artist = ellipsize(ctx, artistName(song), columnWidth);
 
   const chips = buildChips(ctx, queue, song);
-  const chipRows = packChips(chips, columnWidth);
+  const chipRows = packChips(ctx, chips, columnWidth);
 
   const columnHeight = 18 + titleLines.length * 42 + 30 + 26 + 22 + chipRows.length * 36;
   const contentHeight = Math.max(ART_SIZE, columnHeight);
