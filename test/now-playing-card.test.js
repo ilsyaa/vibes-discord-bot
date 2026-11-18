@@ -13,7 +13,7 @@ function dimensions(buffer) {
 test('now-playing card menghasilkan PNG dengan lebar tetap', async () => {
   const buffer = await renderNowPlayingCard(queue, song);
   const { width } = dimensions(buffer);
-  assert.equal(width, 760);
+  assert.equal(width, 900);
   assert.ok(buffer.length > 1_000);
 });
 
@@ -36,7 +36,7 @@ test('now-playing card merender judul ekstrem tanpa melempar error', async () =>
     user: null,
   });
 
-  assert.equal(dimensions(buffer).width, 760);
+  assert.equal(dimensions(buffer).width, 900);
 });
 
 test('formatTime memformat detik menjadi menit dan jam', () => {
