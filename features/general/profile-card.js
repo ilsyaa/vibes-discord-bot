@@ -14,7 +14,7 @@ const GAP = 16;
 const RADIUS = 24;
 const PANEL_RADIUS = 16;
 const AVATAR_SIZE = 96;
-const HEADER_HEIGHT = 152;
+const HEADER_HEIGHT = 192;
 const ROW_HEIGHT = 54;
 const CHIP_HEIGHT = 30;
 
@@ -254,7 +254,7 @@ function formatFriendRow(ctx, row, x, y, maxWidth) {
 }
 
 function formatTrackRow(ctx, row, x, y, maxWidth, item) {
-  const barWidth = Math.max(maxWidth - 8, 120);
+  const barWidth = Math.max(maxWidth - 12, 120);
   const nameWidth = barWidth;
 
   ctx.font = ROW_TITLE_FONT;
