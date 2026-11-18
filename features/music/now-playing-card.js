@@ -51,7 +51,7 @@ function buildLayout(ctx, queue, song) {
   const chips = buildChips(ctx, queue, song);
   const chipRows = packChips(ctx, chips, columnWidth);
 
-  const columnHeight = 18 + titleLines.length * 44 + 34 + 26 + 22 + chipRows.length * 36;
+  const columnHeight = 18 + titleLines.length * 46 + 34 + 26 + 22 + chipRows.length * 36;
   const contentHeight = Math.max(ART_SIZE, columnHeight);
   const height = PAD * 2 + contentHeight + 8;
   const centeredArtTop = PAD + Math.max((contentHeight - ART_SIZE) / 2, 0);
@@ -138,15 +138,7 @@ function paintCover(ctx, cover, paused, artTop) {
     ctx.fillStyle = fallback;
     ctx.fillRect(PAD, y, ART_SIZE, ART_SIZE);
 
-    ctx.beginPath();
-    ctx.arc(PAD + ART_SIZE / 2, y + ART_SIZE / 2, 40, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(PAD + ART_SIZE / 2, y + ART_SIZE / 2, 8, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.16)';
-    ctx.fill();
+    paintNoteGlyph(ctx, PAD + ART_SIZE / 2, y + ART_SIZE / 2);
   }
 
   const shade = ctx.createLinearGradient(0, y + ART_SIZE * 0.45, 0, y + ART_SIZE);
@@ -164,6 +156,30 @@ function paintCover(ctx, cover, paused, artTop) {
   ctx.restore();
 
   paintTransportBadge(ctx, PAD + 14, y + ART_SIZE - 50, paused);
+}
+
+function paintNoteGlyph(ctx, cx, cy) {
+  ctx.save();
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+
+  ctx.beginPath();
+  ctx.ellipse(cx - 26, cy + 24, 16, 11, -0.32, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(cx + 26, cy + 14, 16, 11, -0.32, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillRect(cx - 12, cy - 28, 4, 54);
+  ctx.fillRect(cx + 40, cy - 38, 4, 54);
+
+  ctx.beginPath();
+  ctx.moveTo(cx - 12, cy - 28);
+  ctx.lineTo(cx + 44, cy - 38);
+  ctx.lineTo(cx + 44, cy - 26);
+  ctx.lineTo(cx - 12, cy - 16);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
 }
 
 function paintTransportBadge(ctx, x, y, paused) {
@@ -203,10 +219,10 @@ function paintMeta(ctx, meta, queue, song) {
   ctx.fillStyle = '#f4f6ff';
   for (const line of titleLines) {
     ctx.fillText(line, columnX, y + 30);
-    y += 44;
+    y += 46;
   }
 
-  y += 4;
+  y += 6;
   ctx.font = ARTIST_FONT;
   ctx.fillStyle = '#9aa3c7';
   ctx.fillText(artist, columnX, y + 12);
