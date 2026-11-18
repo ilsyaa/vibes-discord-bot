@@ -132,11 +132,12 @@ function paintBackground(ctx, height) {
 }
 
 function paintHeading(ctx, meta, queue) {
+  const paused = Boolean(queue?.paused);
+
   ctx.font = LABEL_FONT;
   ctx.fillStyle = '#8b93b8';
-  ctx.fillText('SEDANG DIPUTAR', PAD, PAD + 12);
+  ctx.fillText(paused ? 'DIJEDA' : 'SEDANG DIPUTAR', PAD, PAD + 12);
 
-  const paused = Boolean(queue?.paused);
   const label = paused ? 'PAUSED' : 'PLAYING';
   ctx.font = CHIP_FONT;
   const labelWidth = ctx.measureText(label).width + 22;
