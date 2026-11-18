@@ -1,7 +1,9 @@
 node_modules/
 .env
+.env.backup*
 cookies.json
 *.log
 logs/
+backups/
 .DS_Store
 data/
