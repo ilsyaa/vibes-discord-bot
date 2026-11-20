@@ -24,8 +24,6 @@ const COVER_TIMEOUT_MS = 8_000;
 // YouTube answers dead/blocked videos with a 120x90 grey placeholder.
 const COVER_MIN_WIDTH = 160;
 
-export const CARD_FILENAME = 'now-playing.png';
-
 export async function renderNowPlayingCard(queue, song) {
   const cover = await loadCover(song?.thumbnail);
   const measure = createCanvas(10, 10).getContext('2d');

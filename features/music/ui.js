@@ -23,6 +23,32 @@ export async function settleReaction(message, pending, emoji) {
 }
 
 /**
+ * Notifications can only show message text, so the panel ships a one-line
+ * summary next to the card. Markdown is escaped and mentions are suppressed by
+ * the caller to keep song titles from pinging anyone.
+ */
+export function nowPlayingContent(song) {
+  const title = getSongTitle(song, 'Tanpa judul').replace(/([\\*_~`>|])/gu, '\\$1');
+  const artist = String(song?.uploader?.name || song?.uploader || '').trim();
+
+  return artist ? `**${title}** — ${artist}` : `**${title}**`;
+}
+
+/** Attachment name mirrors the track so forwarded/saved cards stay readable. */
+export function nowPlayingFileName(song) {
+  const slug = getSongTitle(song, 'now-playing')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, '-')
+    .replace(/^-+|-+$/gu, '')
+    .slice(0, 60)
+    .replace(/-+$/gu, '');
+
+  return `${slug || 'now-playing'}.png`;
+}
+
+/**
  * The panel is a rendered image, so progress only moves when it is re-rendered.
  * Paused or empty queues have nothing to update.
  */

@@ -9,8 +9,15 @@ import { EmbedBuilder, AttachmentBuilder } from 'discord.js';
 import { config } from '../../core/config.js';
 import { ProxyPool } from '../../core/proxy-pool.js';
 import { createStreamRelay } from '../../core/stream-relay.js';
-import { createNowPlayingEmbed, createPlayerButtons, getSongTitle, shouldAutoRefreshPanel } from './ui.js';
-import { CARD_FILENAME, renderNowPlayingCard } from './now-playing-card.js';
+import {
+  createNowPlayingEmbed,
+  createPlayerButtons,
+  getSongTitle,
+  nowPlayingContent,
+  nowPlayingFileName,
+  shouldAutoRefreshPanel,
+} from './ui.js';
+import { renderNowPlayingCard } from './now-playing-card.js';
 
 let distubeInstance = null;
 let panelHeartbeat = null;
@@ -75,9 +82,13 @@ export async function buildPlayerPayload(client, queue, song) {
   try {
     const buffer = await renderNowPlayingCard(queue, song);
     return {
-      files: [new AttachmentBuilder(buffer, { name: CARD_FILENAME })],
+      // Discord shows this line in the notification; the card alone would only
+      // surface "Uploaded now-playing.png".
+      content: nowPlayingContent(song),
+      files: [new AttachmentBuilder(buffer, { name: nowPlayingFileName(song) })],
       embeds: [],
       components,
+      allowedMentions: { parse: [] },
     };
   } catch (error) {
     console.warn('Now-playing card gagal dirender, memakai embed:', error.message);
