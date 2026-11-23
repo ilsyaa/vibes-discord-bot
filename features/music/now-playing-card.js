@@ -359,7 +359,7 @@ function songTitle(song) {
 }
 
 function artistName(song) {
-  return song?.uploader?.name || song?.uploader || 'YouTube';
+  return song?.uploader?.name || (typeof song?.uploader === 'string' ? song.uploader : '') || 'YouTube';
 }
 
 export function formatTime(seconds) {

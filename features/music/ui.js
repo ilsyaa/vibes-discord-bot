@@ -29,7 +29,7 @@ export async function settleReaction(message, pending, emoji) {
  */
 export function nowPlayingContent(song) {
   const title = getSongTitle(song, 'Tanpa judul').replace(/([\\*_~`>|])/gu, '\\$1');
-  const artist = String(song?.uploader?.name || song?.uploader || '').trim();
+  const artist = String(song?.uploader?.name || (typeof song?.uploader === 'string' ? song.uploader : '') || '').trim();
 
   return artist ? `**${title}** — ${artist}` : `**${title}**`;
 }
@@ -94,7 +94,7 @@ export function createNowPlayingEmbed(queue, song) {
     .setDescription(`**${formatSongLink(song)}**`)
     .addFields(
       { name: '⏱️ Durasi', value: song.formattedDuration || 'Live Stream', inline: true },
-      { name: '👤 Channel / Artist', value: song.uploader?.name || song.uploader || 'Unknown', inline: true },
+      { name: '👤 Channel / Artist', value: song.uploader?.name || (typeof song.uploader === 'string' ? song.uploader : '') || 'Unknown', inline: true },
       { name: '🎧 Diminta Oleh', value: song.user?.id ? `<@${song.user.id}>` : song.user?.username || 'Unknown', inline: true },
       { name: '🔊 Volume', value: `${queue.volume}%`, inline: true },
       { name: '🔁 Loop', value: loopStatus, inline: true },

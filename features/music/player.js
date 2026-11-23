@@ -2,9 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { DisTube } from 'distube';
+import { DisTube, Song } from 'distube';
 import { YouTubePlugin } from '@distube/youtube';
-import { createPoTokenProvider, Client, Ytdl } from '@distube/ytdl-core';
+import { createPoTokenProvider, Client, Ytdl, parsePlaylistId, parseVideoId } from '@distube/ytdl-core';
 import { EmbedBuilder, AttachmentBuilder } from 'discord.js';
 import { config } from '../../core/config.js';
 import { ProxyPool } from '../../core/proxy-pool.js';
@@ -18,6 +18,7 @@ import {
   shouldAutoRefreshPanel,
 } from './ui.js';
 import { renderNowPlayingCard } from './now-playing-card.js';
+import { downloadVelixsStream, resolveVelixsAudio } from './velixs.js';
 
 let distubeInstance = null;
 let panelHeartbeat = null;
@@ -357,7 +358,11 @@ export async function initMusicPlayer(client) {
     console.log('🌐 YouTube proxy pool tidak dikonfigurasi; memakai koneksi langsung.');
   }
 
-  poTokenProvider = await startPoTokenProvider(fetchThroughProxy);
+  const streamProvider = config.youtubeStreamProvider || 'ytdl';
+  console.log(`🎵 YouTube stream provider: ${streamProvider}`);
+  poTokenProvider = streamProvider === 'velixs'
+    ? null
+    : await startPoTokenProvider(fetchThroughProxy);
   const poToken = poTokenProvider || undefined;
 
   const youtubeClients = [
@@ -369,12 +374,61 @@ export async function initMusicPlayer(client) {
   ];
   const youtubePlugin = new YouTubePlugin({
     cookies,
-    ytdlOptions: {
-      getPoToken: poToken,
-      fetch: fetchThroughProxy,
-      clients: youtubeClients,
-    },
+    ytdlOptions: streamProvider === 'velixs'
+      ? { clients: youtubeClients }
+      : {
+          getPoToken: poToken,
+          fetch: fetchThroughProxy,
+          clients: youtubeClients,
+        },
   });
+  if (streamProvider === 'velixs') {
+    const originalResolve = youtubePlugin.resolve.bind(youtubePlugin);
+    youtubePlugin.resolve = async (url, options = {}) => {
+      const videoId = parseVideoId(url);
+      const isPlaylistOrChannel = Boolean(parsePlaylistId(url))
+        || /^https?:\/\/(?:www\.)?youtube\.com\/(?:@|channel\/|c\/|user\/)/iu.test(String(url || ''));
+      if (videoId && !isPlaylistOrChannel) {
+        try {
+          const [meta, oembed] = await Promise.all([
+            resolveVelixsAudio(url, {
+              apiUrl: config.velixsApiUrl,
+              apiKey: config.velixsApiKey,
+              quality: config.velixsAudioQuality,
+            }),
+            fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`, {
+              signal: AbortSignal.timeout(2_500),
+            })
+              .then((res) => (res.ok ? res.json() : null))
+              .catch(() => null),
+          ]);
+          const uploaderName = typeof oembed?.author_name === 'string' && oembed.author_name.trim()
+            ? oembed.author_name.trim()
+            : 'YouTube';
+          const song = new Song({
+            plugin: youtubePlugin,
+            source: 'youtube',
+            playFromSource: true,
+            id: videoId,
+            name: meta.title || oembed?.title || 'YouTube Audio',
+            url,
+            duration: meta.duration || 0,
+            thumbnail: meta.thumbnail || oembed?.thumbnail_url || null,
+            uploader: {
+              name: uploaderName,
+              url: typeof oembed?.author_url === 'string' ? oembed.author_url : undefined,
+            },
+          }, options);
+          song._velixsResolved = meta;
+          return song;
+        } catch (error) {
+          if (!config.velixsFallbackToYtdl) throw error;
+          console.warn(`⚠️ Velixs resolve gagal (${error.message}), fallback ke ytdl.`);
+        }
+      }
+      return originalResolve(url, options);
+    };
+  }
   youtubePluginInstance = youtubePlugin;
   const resolvedInfos = new Map();
   const songMetadataRequests = new WeakMap();
@@ -445,34 +499,55 @@ export async function initMusicPlayer(client) {
     }
   };
   songMetadataResolver = recoverSongMetadata;
+  const createYtdlStream = async (url, info) => {
+    const mediaInfo = info || await youtubePlugin.ytdl.getInfo(url);
+    const session = await youtubeProxyPool.createSession();
+    try {
+      const streamYtdl = new Ytdl({
+        cookie: youtubePlugin.ytCookie || undefined,
+        fetch: session.fetch,
+        getPoToken: poToken,
+        clients: youtubeClients,
+      });
+      const stream = streamYtdl.download(mediaInfo, {
+        filter: { hasAudio: true, hasVideo: false },
+        quality: 'highestaudio',
+        highWaterMark: 1 << 20,
+        liveBuffer: 40000,
+      });
+      const closeSession = () => {
+        void session.close();
+      };
+      stream.once('end', closeSession);
+      stream.once('error', closeSession);
+      stream.once('close', closeSession);
+      return stream;
+    } catch (error) {
+      await session.close();
+      throw error;
+    }
+  };
   youtubeStreamRelay = await createStreamRelay({
-    createStream: async ({ url, info }) => {
-      const mediaInfo = info || await youtubePlugin.ytdl.getInfo(url);
-      const session = await youtubeProxyPool.createSession();
-      try {
-        const streamYtdl = new Ytdl({
-          cookie: youtubePlugin.ytCookie || undefined,
-          fetch: session.fetch,
-          getPoToken: poToken,
-          clients: youtubeClients,
-        });
-        const stream = streamYtdl.download(mediaInfo, {
-          filter: { hasAudio: true, hasVideo: false },
-          quality: 'highestaudio',
-          highWaterMark: 1 << 20,
-          liveBuffer: 40000,
-        });
-        const closeSession = () => {
-          void session.close();
-        };
-        stream.once('end', closeSession);
-        stream.once('error', closeSession);
-        stream.once('close', closeSession);
-        return stream;
-      } catch (error) {
-        await session.close();
-        throw error;
+    createStream: async ({ url, info, song }) => {
+      if (streamProvider === 'velixs') {
+        try {
+          const preResolved = song?._velixsResolved || null;
+          if (song) song._velixsResolved = null;
+          return await downloadVelixsStream(url, {
+            apiUrl: config.velixsApiUrl,
+            apiKey: config.velixsApiKey,
+            quality: config.velixsAudioQuality,
+            resolved: preResolved,
+            onMetadata: (meta) => {
+              if (song && !hasSongTitle(song) && meta.title) song.name = meta.title;
+            },
+          });
+        } catch (error) {
+          if (!config.velixsFallbackToYtdl) throw error;
+          console.warn(`⚠️ Velixs API gagal (${error.message}), fallback ke ytdl.`);
+        }
       }
+      return createYtdlStream(url, info);
     },
     onError: (error) => {
       youtubeHealth.lastStreamErrorAt = new Date().toISOString();
@@ -481,6 +556,12 @@ export async function initMusicPlayer(client) {
   });
   youtubePlugin.getStreamURL = async (song) => {
     if (!song?.url) throw new Error('YouTube song URL missing');
+    if (streamProvider === 'velixs') {
+      if (!hasSongTitle(song)) {
+        await recoverSongMetadata(song, { requireInfo: false }).catch(() => {});
+      }
+      return youtubeStreamRelay.register({ url: song.url, song });
+    }
     const info = await recoverSongMetadata(song, { requireInfo: true });
     if (song.id) resolvedInfos.delete(song.id);
     if (info?.videoDetails?.id) resolvedInfos.delete(info.videoDetails.id);
@@ -611,10 +692,15 @@ export async function initMusicPlayer(client) {
   });
 
   distubeInstance = distube;
-  void warmYoutubePipeline(youtubePlugin).then((ready) => {
-    youtubeHealth.warmup = ready ? 'ready' : 'failed';
+  if (streamProvider === 'velixs') {
+    youtubeHealth.warmup = 'ready';
     youtubeHealth.lastWarmupAt = new Date().toISOString();
-  });
+  } else {
+    void warmYoutubePipeline(youtubePlugin).then((ready) => {
+      youtubeHealth.warmup = ready ? 'ready' : 'failed';
+      youtubeHealth.lastWarmupAt = new Date().toISOString();
+    });
+  }
   return distube;
 }
 

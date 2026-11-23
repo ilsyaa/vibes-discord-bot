@@ -24,7 +24,12 @@ export const config = {
   dashboardClientId: process.env.DASHBOARD_CLIENT_ID || process.env.CLIENT_ID || '',
   dashboardClientSecret: process.env.DASHBOARD_CLIENT_SECRET || '',
   dashboardSessionSecret: process.env.DASHBOARD_SESSION_SECRET || '',
-  youtubeProxyFile: path.resolve(process.env.YOUTUBE_PROXY_FILE || 'data/youtube-proxies.txt'),
+  youtubeStreamProvider: parseStreamProvider(process.env.YOUTUBE_STREAM_PROVIDER, 'ytdl'),
+  velixsApiUrl: process.env.VELIXS_API_URL || 'https://api.velixs.com/v1/aio-downloader',
+  velixsApiKey: process.env.VELIXS_API_KEY || '',
+  velixsAudioQuality: process.env.VELIXS_AUDIO_QUALITY || '256KBPS',
+  velixsFallbackToYtdl: process.env.VELIXS_FALLBACK_TO_YTDL === 'true',
+  youtubeProxyFile: process.env.YOUTUBE_PROXY_FILE === '' ? '' : path.resolve(process.env.YOUTUBE_PROXY_FILE || 'data/youtube-proxies.txt'),
   youtubeProxies: process.env.YOUTUBE_PROXIES || process.env.YOUTUBE_PROXY || '',
   youtubeProxyCooldownMs: parseInteger(
     process.env.YOUTUBE_PROXY_COOLDOWN_MS,
@@ -60,6 +65,9 @@ export function validateRuntimeConfig({
 } = {}) {
   if (requireToken && !currentConfig.token) throw new Error('DISCORD_TOKEN belum diatur di .env.');
   if (requireClientId && !currentConfig.clientId) throw new Error('CLIENT_ID belum diatur di .env.');
+  if (requireToken && currentConfig.youtubeStreamProvider === 'velixs' && !currentConfig.velixsApiKey) {
+    throw new Error('VELIXS_API_KEY belum diatur di .env saat YOUTUBE_STREAM_PROVIDER=velixs.');
+  }
   if (!currentConfig.dashboardEnabled) return;
   const missing = [
     ['DASHBOARD_PUBLIC_URL', currentConfig.dashboardPublicUrl],
@@ -121,4 +129,14 @@ export function parseIdList(value, name = 'ID list') {
 
 function normalizePublicUrl(value) {
   return value.replace(/\/+$/u, '');
+}
+
+export function parseStreamProvider(value, fallback = 'ytdl') {
+  if (value === undefined || value.trim() === '') return fallback;
+
+  const provider = value.trim().toLowerCase();
+  if (!['ytdl', 'velixs'].includes(provider)) {
+    throw new Error('YOUTUBE_STREAM_PROVIDER harus "ytdl" atau "velixs"');
+  }
+  return provider;
 }
